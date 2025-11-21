@@ -4,7 +4,7 @@ import { Op } from 'sequelize';
 import User from '../models/User';
 
 export class AuthService {
-  static async register(email: string, mobile: string, password: string) {
+  static async register(email: string, mobile: string, password: string, name?: string) {
     const existingUser = await User.findOne({
       where: {
         [Op.or]: [{ email }, { mobile }],
@@ -20,6 +20,7 @@ export class AuthService {
       email,
       mobile,
       password_hash,
+      name,
       auth_method: 'email',
       is_verified: true, // Auto-verify for now
     });
@@ -33,9 +34,10 @@ export class AuthService {
     return {
       token,
       user: {
-      id: user.id,
-      email: user.email,
-      mobile: user.mobile,
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        mobile: user.mobile,
         abha_id: user.abha_id,
         abha_number: user.abha_number,
       },
@@ -68,6 +70,7 @@ export class AuthService {
       token,
       user: {
         id: user.id,
+        name: user.name,
         email: user.email,
         mobile: user.mobile,
         abha_id: user.abha_id,

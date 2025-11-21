@@ -3,6 +3,7 @@ import sequelize from '../config/database';
 
 interface UserAttributes {
   id: string;
+  name?: string;
   email: string;
   mobile: string;
   password_hash: string;
@@ -20,10 +21,11 @@ interface UserAttributes {
   updated_at: Date;
 }
 
-interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'created_at' | 'updated_at' | 'is_verified' | 'abha_id' | 'abha_number' | 'gender' | 'height' | 'weight' | 'date_of_birth' | 'goal' | 'profile_complete'> {}
+interface UserCreationAttributes extends Optional<UserAttributes, 'id' | 'created_at' | 'updated_at' | 'is_verified' | 'abha_id' | 'abha_number' | 'name' | 'gender' | 'height' | 'weight' | 'date_of_birth' | 'goal' | 'profile_complete'> {}
 
 class User extends Model<UserAttributes, UserCreationAttributes> implements UserAttributes {
   public id!: string;
+  public name?: string;
   public email!: string;
   public mobile!: string;
   public password_hash!: string;
@@ -47,6 +49,11 @@ User.init(
       type: DataTypes.UUID,
       defaultValue: DataTypes.UUIDV4,
       primaryKey: true,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'User full name',
     },
     email: {
       type: DataTypes.STRING,

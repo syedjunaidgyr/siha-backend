@@ -25,6 +25,7 @@ router.put(
   '/profile',
   authenticate,
   [
+    body('name').optional().isString().trim().isLength({ min: 1, max: 255 }),
     body('gender').optional().isIn(['male', 'female', 'other']),
     body('height').optional().isFloat({ min: 50, max: 300 }),
     body('weight').optional().isFloat({ min: 20, max: 300 }),
@@ -49,8 +50,9 @@ router.put(
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { gender, height, weight, date_of_birth, goal } = req.body;
+      const { name, gender, height, weight, date_of_birth, goal } = req.body;
       const profile = await ProfileService.updateProfile(req.user.id, {
+        name,
         gender,
         height,
         weight,

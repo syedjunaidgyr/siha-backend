@@ -1,6 +1,7 @@
 import User from '../models/User';
 
 export interface ProfileUpdateData {
+  name?: string;
   gender?: 'male' | 'female' | 'other';
   height?: number;
   weight?: number;
@@ -16,6 +17,7 @@ export class ProfileService {
     }
 
     // Update profile fields
+    if (data.name !== undefined) user.name = data.name;
     if (data.gender !== undefined) user.gender = data.gender;
     if (data.height !== undefined) user.height = data.height;
     if (data.weight !== undefined) user.weight = data.weight;
@@ -36,6 +38,7 @@ export class ProfileService {
 
     return {
       id: user.id,
+      name: user.name,
       email: user.email,
       mobile: user.mobile,
       gender: user.gender,
@@ -51,6 +54,7 @@ export class ProfileService {
     const user = await User.findByPk(userId, {
       attributes: [
         'id',
+        'name',
         'email',
         'mobile',
         'gender',

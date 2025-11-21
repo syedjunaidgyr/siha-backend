@@ -11,6 +11,7 @@ router.post(
     body('email').isEmail().normalizeEmail(),
     body('mobile').isMobilePhone('en-IN'),
     body('password').isLength({ min: 8 }),
+    body('name').optional().isString().trim().isLength({ min: 1, max: 255 }),
   ],
   async (req: Request, res: Response) => {
     try {
@@ -21,9 +22,9 @@ router.post(
         return res.status(400).json({ errors: errors.array() });
       }
 
-      const { email, mobile, password } = req.body;
+      const { email, mobile, password, name } = req.body;
       console.log('Attempting to register user:', email);
-      const user = await AuthService.register(email, mobile, password);
+      const user = await AuthService.register(email, mobile, password, name);
       console.log('User registered successfully:', user.id);
       res.status(201).json({ message: 'User registered successfully', user });
     } catch (error: any) {
