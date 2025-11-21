@@ -58,8 +58,6 @@ module.exports = {
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
       },
       });
-    } else {
-      console.log('Table "users" already exists, skipping creation.');
     }
   },
 

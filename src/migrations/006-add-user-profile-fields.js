@@ -1,39 +1,54 @@
 'use strict';
 
+const { columnExists } = require('./_helpers');
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.addColumn('users', 'gender', {
-      type: Sequelize.ENUM('male', 'female', 'other'),
-      allowNull: true,
-    });
+    // Add columns only if they don't exist
+    if (!(await columnExists(queryInterface, 'users', 'gender'))) {
+      await queryInterface.addColumn('users', 'gender', {
+        type: Sequelize.ENUM('male', 'female', 'other'),
+        allowNull: true,
+      });
+    }
 
-    await queryInterface.addColumn('users', 'height', {
-      type: Sequelize.DECIMAL(5, 2),
-      allowNull: true,
-      comment: 'Height in cm',
-    });
+    if (!(await columnExists(queryInterface, 'users', 'height'))) {
+      await queryInterface.addColumn('users', 'height', {
+        type: Sequelize.DECIMAL(5, 2),
+        allowNull: true,
+        comment: 'Height in cm',
+      });
+    }
 
-    await queryInterface.addColumn('users', 'weight', {
-      type: Sequelize.DECIMAL(5, 2),
-      allowNull: true,
-      comment: 'Weight in kg',
-    });
+    if (!(await columnExists(queryInterface, 'users', 'weight'))) {
+      await queryInterface.addColumn('users', 'weight', {
+        type: Sequelize.DECIMAL(5, 2),
+        allowNull: true,
+        comment: 'Weight in kg',
+      });
+    }
 
-    await queryInterface.addColumn('users', 'date_of_birth', {
-      type: Sequelize.DATE,
-      allowNull: true,
-    });
+    if (!(await columnExists(queryInterface, 'users', 'date_of_birth'))) {
+      await queryInterface.addColumn('users', 'date_of_birth', {
+        type: Sequelize.DATE,
+        allowNull: true,
+      });
+    }
 
-    await queryInterface.addColumn('users', 'goal', {
-      type: Sequelize.ENUM('weight_loss', 'weight_gain', 'muscle_gain', 'maintain', 'general_fitness', 'improve_endurance'),
-      allowNull: true,
-    });
+    if (!(await columnExists(queryInterface, 'users', 'goal'))) {
+      await queryInterface.addColumn('users', 'goal', {
+        type: Sequelize.ENUM('weight_loss', 'weight_gain', 'muscle_gain', 'maintain', 'general_fitness', 'improve_endurance'),
+        allowNull: true,
+      });
+    }
 
-    await queryInterface.addColumn('users', 'profile_complete', {
-      type: Sequelize.BOOLEAN,
-      allowNull: false,
-      defaultValue: false,
-    });
+    if (!(await columnExists(queryInterface, 'users', 'profile_complete'))) {
+      await queryInterface.addColumn('users', 'profile_complete', {
+        type: Sequelize.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      });
+    }
   },
 
   down: async (queryInterface, Sequelize) => {

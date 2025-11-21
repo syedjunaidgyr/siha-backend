@@ -27,8 +27,22 @@ async function indexExists(queryInterface, tableName, indexName) {
   return results[0].exists;
 }
 
+async function columnExists(queryInterface, tableName, columnName) {
+  const [results] = await queryInterface.sequelize.query(`
+    SELECT EXISTS (
+      SELECT 1 
+      FROM information_schema.columns 
+      WHERE table_schema = 'public' 
+      AND table_name = '${tableName}' 
+      AND column_name = '${columnName}'
+    );
+  `);
+  return results[0].exists;
+}
+
 module.exports = {
   tableExists,
   indexExists,
+  columnExists,
 };
 
