@@ -1,8 +1,13 @@
 'use strict';
 
+const { tableExists } = require('./_helpers');
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('users', {
+    if (await tableExists(queryInterface, 'users')) {
+      console.log('Table "users" already exists, skipping creation.');
+    } else {
+      await queryInterface.createTable('users', {
       id: {
         type: Sequelize.UUID,
         defaultValue: Sequelize.UUIDV4,
@@ -52,7 +57,10 @@ module.exports = {
         allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
       },
-    });
+      });
+    } else {
+      console.log('Table "users" already exists, skipping creation.');
+    }
   },
 
   down: async (queryInterface, Sequelize) => {

@@ -1,8 +1,13 @@
 'use strict';
 
+const { tableExists, indexExists } = require('./_helpers');
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('consents', {
+    if (await tableExists(queryInterface, 'consents')) {
+      console.log('Table "consents" already exists, skipping creation.');
+    } else {
+      await queryInterface.createTable('consents', {
       id: {
         type: Sequelize.UUID,
         defaultValue: Sequelize.UUIDV4,
@@ -53,12 +58,15 @@ module.exports = {
         allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
       },
-    });
+      });
+    }
 
-    // Add index
-    await queryInterface.addIndex('consents', ['user_id', 'consent_type', 'is_active'], {
-      name: 'consents_user_type_active_idx',
-    });
+    // Add index if it doesn't exist
+    if (!(await indexExists(queryInterface, 'consents', 'consents_user_type_active_idx'))) {
+      await queryInterface.addIndex('consents', ['user_id', 'consent_type', 'is_active'], {
+        name: 'consents_user_type_active_idx',
+      });
+    }
   },
 
   down: async (queryInterface, Sequelize) => {

@@ -1,8 +1,13 @@
 'use strict';
 
+const { tableExists, indexExists } = require('./_helpers');
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('audit_logs', {
+    if (await tableExists(queryInterface, 'audit_logs')) {
+      console.log('Table "audit_logs" already exists, skipping creation.');
+    } else {
+      await queryInterface.createTable('audit_logs', {
       id: {
         type: Sequelize.UUID,
         defaultValue: Sequelize.UUIDV4,
@@ -41,20 +46,27 @@ module.exports = {
         allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
       },
-    });
+      });
+    }
 
-    // Add indexes
-    await queryInterface.addIndex('audit_logs', ['user_id', 'created_at'], {
-      name: 'audit_logs_user_created_idx',
-    });
+    // Add indexes if they don't exist
+    if (!(await indexExists(queryInterface, 'audit_logs', 'audit_logs_user_created_idx'))) {
+      await queryInterface.addIndex('audit_logs', ['user_id', 'created_at'], {
+        name: 'audit_logs_user_created_idx',
+      });
+    }
 
-    await queryInterface.addIndex('audit_logs', ['resource_type', 'resource_id'], {
-      name: 'audit_logs_resource_idx',
-    });
+    if (!(await indexExists(queryInterface, 'audit_logs', 'audit_logs_resource_idx'))) {
+      await queryInterface.addIndex('audit_logs', ['resource_type', 'resource_id'], {
+        name: 'audit_logs_resource_idx',
+      });
+    }
 
-    await queryInterface.addIndex('audit_logs', ['created_at'], {
-      name: 'audit_logs_created_idx',
-    });
+    if (!(await indexExists(queryInterface, 'audit_logs', 'audit_logs_created_idx'))) {
+      await queryInterface.addIndex('audit_logs', ['created_at'], {
+        name: 'audit_logs_created_idx',
+      });
+    }
   },
 
   down: async (queryInterface, Sequelize) => {

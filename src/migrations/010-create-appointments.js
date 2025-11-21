@@ -1,8 +1,13 @@
 'use strict';
 
+const { tableExists, indexExists } = require('./_helpers');
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('appointments', {
+    if (await tableExists(queryInterface, 'appointments')) {
+      console.log('Table "appointments" already exists, skipping creation.');
+    } else {
+      await queryInterface.createTable('appointments', {
       id: {
         type: Sequelize.UUID,
         defaultValue: Sequelize.UUIDV4,
@@ -49,16 +54,21 @@ module.exports = {
         allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
       },
-    });
+      });
+    }
 
-    // Add indexes
-    await queryInterface.addIndex('appointments', ['user_id', 'appointment_time'], {
-      name: 'appointments_user_time_idx',
-    });
+    // Add indexes if they don't exist
+    if (!(await indexExists(queryInterface, 'appointments', 'appointments_user_time_idx'))) {
+      await queryInterface.addIndex('appointments', ['user_id', 'appointment_time'], {
+        name: 'appointments_user_time_idx',
+      });
+    }
 
-    await queryInterface.addIndex('appointments', ['provider_id', 'appointment_time'], {
-      name: 'appointments_provider_time_idx',
-    });
+    if (!(await indexExists(queryInterface, 'appointments', 'appointments_provider_time_idx'))) {
+      await queryInterface.addIndex('appointments', ['provider_id', 'appointment_time'], {
+        name: 'appointments_provider_time_idx',
+      });
+    }
   },
 
   down: async (queryInterface, Sequelize) => {

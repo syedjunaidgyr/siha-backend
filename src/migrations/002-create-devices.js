@@ -1,8 +1,13 @@
 'use strict';
 
+const { tableExists, indexExists } = require('./_helpers');
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('devices', {
+    if (await tableExists(queryInterface, 'devices')) {
+      console.log('Table "devices" already exists, skipping creation.');
+    } else {
+      await queryInterface.createTable('devices', {
       id: {
         type: Sequelize.UUID,
         defaultValue: Sequelize.UUIDV4,
@@ -61,12 +66,16 @@ module.exports = {
         allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
       },
-    });
+      });
+    }
 
-    await queryInterface.addIndex('devices', ['user_id', 'vendor', 'device_id'], {
-      unique: true,
-      name: 'devices_user_vendor_device_unique',
-    });
+    // Add index if it doesn't exist
+    if (!(await indexExists(queryInterface, 'devices', 'devices_user_vendor_device_unique'))) {
+      await queryInterface.addIndex('devices', ['user_id', 'vendor', 'device_id'], {
+        unique: true,
+        name: 'devices_user_vendor_device_unique',
+      });
+    }
   },
 
   down: async (queryInterface, Sequelize) => {

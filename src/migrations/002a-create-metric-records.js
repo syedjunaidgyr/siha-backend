@@ -1,10 +1,15 @@
 'use strict';
 
+const { tableExists, indexExists } = require('./_helpers');
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    // Create the metric_records table with base ENUM values
-    // Additional ENUM values will be added in subsequent migrations (003, 004, 005)
-    await queryInterface.createTable('metric_records', {
+    if (await tableExists(queryInterface, 'metric_records')) {
+      console.log('Table "metric_records" already exists, skipping creation.');
+    } else {
+      // Create the metric_records table with base ENUM values
+      // Additional ENUM values will be added in subsequent migrations (003, 004, 005)
+      await queryInterface.createTable('metric_records', {
       id: {
         type: Sequelize.UUID,
         defaultValue: Sequelize.UUIDV4,
@@ -76,16 +81,21 @@ module.exports = {
         allowNull: false,
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP'),
       },
-    });
+      });
+    }
 
-    // Add indexes
-    await queryInterface.addIndex('metric_records', ['user_id', 'metric_type', 'start_time'], {
-      name: 'metric_records_user_metric_time_idx',
-    });
+    // Add indexes if they don't exist
+    if (!(await indexExists(queryInterface, 'metric_records', 'metric_records_user_metric_time_idx'))) {
+      await queryInterface.addIndex('metric_records', ['user_id', 'metric_type', 'start_time'], {
+        name: 'metric_records_user_metric_time_idx',
+      });
+    }
 
-    await queryInterface.addIndex('metric_records', ['start_time'], {
-      name: 'metric_records_start_time_idx',
-    });
+    if (!(await indexExists(queryInterface, 'metric_records', 'metric_records_start_time_idx'))) {
+      await queryInterface.addIndex('metric_records', ['start_time'], {
+        name: 'metric_records_start_time_idx',
+      });
+    }
   },
 
   down: async (queryInterface, Sequelize) => {
