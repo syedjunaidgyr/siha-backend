@@ -18,14 +18,42 @@ router.get(
       }
 
       const userRecord = await User.findByPk(req.user.id);
-      const userProfile = PreventiveHealthService.buildUserProfilePayload(userRecord);
+      const userProfile = PreventiveHealthService.buildUserProfilePayload(userRecord || undefined);
 
-      const insights = await PreventiveHealthService.getInsights(req.user.id, {
-        lookbackDays,
-        userProfile,
-      });
+      try {
+        const insights = await PreventiveHealthService.getInsights(req.user.id, {
+          lookbackDays,
+          userProfile,
+        });
 
-      res.json({ success: true, result: insights });
+        res.json({ success: true, result: insights });
+      } catch (error: any) {
+        // Handle "no metrics" case gracefully
+        if (error.message === 'No metrics available for preventive insights') {
+          console.log(`[PreventiveHealthRoute] No metrics found for user ${req.user.id}, returning empty insights`);
+          
+          // Return empty/default insights structure instead of error
+          res.json({
+            success: true,
+            result: {
+              lifestyleCard: null,
+              lifestylePlan: null,
+              summary: {
+                message: 'Start tracking your health metrics to get personalized insights',
+                nextBestAction: 'Connect a health device or manually log your first metrics to enable AI insights',
+              },
+              metrics: {
+                available: false,
+                message: 'No metrics available. Please track some health data to get insights.',
+              },
+            },
+          });
+          return;
+        }
+
+        // Re-throw other errors to be caught by outer catch
+        throw error;
+      }
     } catch (error: any) {
       console.error('[PreventiveHealthRoute] GET error:', error);
       res.status(500).json({
@@ -53,7 +81,7 @@ router.post(
       const lookbackDays = req.body.lookbackDays ? parseInt(req.body.lookbackDays, 10) : undefined;
 
       const userRecord = await User.findByPk(req.user.id);
-      const userProfile = PreventiveHealthService.buildUserProfilePayload(userRecord);
+      const userProfile = PreventiveHealthService.buildUserProfilePayload(userRecord || undefined);
 
       const insights = await PreventiveHealthService.getInsights(req.user.id, {
         lookbackDays,
