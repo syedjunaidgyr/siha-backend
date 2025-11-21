@@ -24,22 +24,31 @@ export class S3Service {
    * Generate presigned URL for uploading a frame to S3
    */
   static async getUploadUrl(userId: string, frameIndex: number): Promise<S3UploadInfo> {
-    const timestamp = Date.now();
-    const uniqueId = randomUUID().substring(0, 8);
-    const key = `video-frames/${userId}/${timestamp}-${uniqueId}-frame-${frameIndex}.jpg`;
-    
-    const command = new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: key,
-      ContentType: 'image/jpeg',
-    });
+    try {
+      const timestamp = Date.now();
+      const uniqueId = randomUUID().substring(0, 8);
+      const key = `video-frames/${userId}/${timestamp}-${uniqueId}-frame-${frameIndex}.jpg`;
+      
+      const command = new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+        ContentType: 'image/jpeg',
+      });
 
-    const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: UPLOAD_EXPIRY });
+      const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: UPLOAD_EXPIRY });
 
-    return {
-      key,
-      uploadUrl,
-    };
+      if (!uploadUrl) {
+        throw new Error('Failed to generate presigned URL');
+      }
+
+      return {
+        key,
+        uploadUrl,
+      };
+    } catch (error: any) {
+      console.error(`[S3Service] Error generating upload URL for frame ${frameIndex}:`, error);
+      throw new Error(`Failed to generate S3 upload URL: ${error.message || 'Unknown error'}`);
+    }
   }
 
   /**

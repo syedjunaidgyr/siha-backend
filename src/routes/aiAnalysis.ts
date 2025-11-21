@@ -164,7 +164,14 @@ router.get(
       }
 
       const frameCount = parseInt(req.query.frameCount as string) || 15;
+      console.log(`[AI Analysis] Generating ${frameCount} S3 upload URLs for user ${req.user.id}`);
+      
       const uploadInfos = await S3Service.getBatchUploadUrls(req.user.id, frameCount);
+      
+      console.log(`[AI Analysis] Generated ${uploadInfos.length} S3 upload URLs`);
+      if (uploadInfos.length > 0) {
+        console.log(`[AI Analysis] Sample URL format: ${uploadInfos[0].uploadUrl.substring(0, 100)}...`);
+      }
 
       res.json({
         uploadUrls: uploadInfos,
