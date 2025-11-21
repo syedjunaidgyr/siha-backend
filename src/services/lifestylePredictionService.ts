@@ -19,6 +19,7 @@ export interface LifestylePredictionData {
 export class LifestylePredictionService {
   /**
    * Generate lifestyle prediction using AI preventive health service
+   * Falls back to profile-based defaults if no metrics are available
    */
   static async generatePrediction(userId: string, date: Date = new Date()): Promise<LifestylePredictionData> {
     const user = await User.findByPk(userId);
@@ -31,14 +32,29 @@ export class LifestylePredictionService {
     }
 
     const userProfile = PreventiveHealthService.buildUserProfilePayload(user);
-    const insights = await PreventiveHealthService.getInsights(userId, {
-      lookbackDays: 14,
-      userProfile,
-    });
+
+    // Try to get AI insights, but fall back to defaults if no metrics are available
+    let insights;
+    try {
+      insights = await PreventiveHealthService.getInsights(userId, {
+        lookbackDays: 14,
+        userProfile,
+      });
+    } catch (error: any) {
+      // If no metrics are available, generate defaults based on user profile
+      if (error.message === 'No metrics available for preventive insights') {
+        console.log(`[LifestylePredictionService] No metrics found for user ${userId}, generating defaults from profile`);
+        return this.generateDefaultPrediction(user);
+      }
+      // Re-throw other errors
+      throw error;
+    }
 
     const lifestyleCard = insights?.lifestyleCard;
     if (!lifestyleCard) {
-      throw new Error('AI lifestyle card unavailable');
+      // Fall back to defaults if AI service doesn't return a lifestyle card
+      console.log(`[LifestylePredictionService] AI lifestyle card unavailable, generating defaults from profile`);
+      return this.generateDefaultPrediction(user);
     }
 
     const lifestylePlan = insights?.lifestylePlan;
@@ -70,6 +86,85 @@ export class LifestylePredictionService {
       water_intake_liters: Number(waterLiters.toFixed(2)),
       lifestyle_score: Math.min(100, Math.max(0, Number(lifestyleCard.score))),
       notes: lifestyleCard.notes || lifestylePlan?.morning?.[0] || insights?.summary?.nextBestAction,
+    };
+  }
+
+  /**
+   * Generate default lifestyle prediction based on user profile only
+   * Uses BMR/TDEE calculations similar to the AI service
+   */
+  private static generateDefaultPrediction(user: User): LifestylePredictionData {
+    const gender = (user.gender || 'other').toLowerCase();
+    const weight = user.weight ? Number(user.weight) : 70.0;
+    const height = user.height ? Number(user.height) : 170.0;
+    const goal = (user.goal || 'general_fitness').toLowerCase();
+
+    // Calculate age
+    let age = 30; // default
+    if (user.date_of_birth) {
+      const diffMs = Date.now() - user.date_of_birth.getTime();
+      const ageDate = new Date(diffMs);
+      age = Math.abs(ageDate.getUTCFullYear() - 1970);
+    }
+
+    // Calculate BMR using Mifflin-St Jeor Equation
+    const heightM = Math.max(height / 100.0, 1.0);
+    let bmr: number;
+    if (gender === 'male') {
+      bmr = 10 * weight + 6.25 * height - 5 * age + 5;
+    } else {
+      bmr = 10 * weight + 6.25 * height - 5 * age - 161;
+    }
+
+    // Calculate TDEE (Total Daily Energy Expenditure)
+    const activityMultiplier = 1.55; // Moderately active
+    let tdee = bmr * activityMultiplier;
+
+    // Adjust calories based on goal
+    let calories = tdee;
+    let workoutDuration = 30;
+    let workoutType = 'General Exercise';
+    let steps = 8000;
+    let lifestyleScore = 75;
+    let notes = 'Based on your profile. Start tracking metrics for personalized recommendations.';
+
+    if (goal === 'weight_loss') {
+      calories = Math.round(tdee * 0.85);
+      workoutDuration = 45;
+      workoutType = 'Cardio & Strength Training';
+      steps = 10000;
+      notes = 'Calorie deficit plan for weight loss. Include regular exercise and track your progress.';
+    } else if (goal === 'weight_gain' || goal === 'muscle_gain') {
+      calories = Math.round(tdee * 1.15);
+      workoutDuration = 45;
+      workoutType = 'Strength Training';
+      steps = 8000;
+      notes = 'Calorie surplus plan for muscle gain. Focus on strength training and adequate protein intake.';
+    } else if (goal === 'improve_endurance') {
+      calories = Math.round(tdee * 1.05);
+      workoutDuration = 60;
+      workoutType = 'Cardio & Endurance Training';
+      steps = 12000;
+      notes = 'Endurance-focused plan. Include regular cardio and gradually increase intensity.';
+    }
+
+    // Calculate macronutrients (similar to AI service)
+    const protein = Math.round(weight * 1.6); // 1.6g per kg body weight
+    const carbs = Math.round((calories * 0.4) / 4); // 40% of calories from carbs
+    const fats = Math.round((calories * 0.3) / 9); // 30% of calories from fats
+
+    return {
+      predicted_calories: Math.round(calories),
+      predicted_protein: protein,
+      predicted_carbs: carbs,
+      predicted_fats: fats,
+      recommended_workout_duration: workoutDuration,
+      recommended_workout_type: workoutType,
+      recommended_steps: steps,
+      sleep_hours: 7.5,
+      water_intake_liters: 2.5,
+      lifestyle_score: lifestyleScore,
+      notes,
     };
   }
 

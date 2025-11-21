@@ -3,6 +3,7 @@ import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
 import sequelize from './config/database';
+import { runMigrations } from './utils/runMigrations';
 
 // Routes
 import authRoutes from './routes/auth';
@@ -94,11 +95,10 @@ async function startServer() {
     await sequelize.authenticate();
     console.log('Database connection established successfully.');
 
-    // Sync database (in production, use migrations)
-    if (process.env.NODE_ENV !== 'production') {
-      await sequelize.sync({ alter: false });
-      console.log('Database models synchronized.');
-    }
+    // Run migrations to ensure database schema is up to date
+    console.log('Running database migrations...');
+    await runMigrations(sequelize);
+    console.log('Database migrations completed.');
 
     app.listen(PORT, '0.0.0.0', () => {
       // Get network IP address
