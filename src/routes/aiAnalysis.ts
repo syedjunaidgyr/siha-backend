@@ -1,9 +1,10 @@
 import { Router, Response } from 'express';
 import multer from 'multer';
-import { body, validationResult } from 'express-validator';
+import { body, query, validationResult } from 'express-validator';
 import { AIAnalysisService } from '../services/aiAnalysisService';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { MetricService } from '../services/metricService';
+import { S3Service } from '../services/s3Service';
 
 const router = Router();
 
@@ -142,9 +143,44 @@ router.post(
 );
 
 /**
+ * GET /v1/ai/upload-urls
+ * Get presigned S3 URLs for uploading video frames
+ */
+router.get(
+  '/upload-urls',
+  authenticate,
+  [
+    query('frameCount').optional().isInt({ min: 1, max: 100 }).withMessage('frameCount must be between 1 and 100'),
+  ],
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ errors: errors.array() });
+      }
+
+      if (!req.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const frameCount = parseInt(req.query.frameCount as string) || 15;
+      const uploadInfos = await S3Service.getBatchUploadUrls(req.user.id, frameCount);
+
+      res.json({
+        uploadUrls: uploadInfos,
+        frameCount: uploadInfos.length,
+      });
+    } catch (error: any) {
+      console.error('Error generating upload URLs:', error);
+      res.status(500).json({ error: 'Failed to generate upload URLs', message: error.message });
+    }
+  }
+);
+
+/**
  * POST /v1/ai/analyze-video
  * Analyze multiple frames (video sequence) for vital signs
- * Accepts multiple image files or base64 encoded images
+ * Accepts S3 keys (preferred), multiple image files, or base64 encoded images
  */
 router.post(
   '/analyze-video',
@@ -152,6 +188,7 @@ router.post(
   upload.array('frames', 100), // Max 100 frames
   [
     body('frames').optional().isArray(),
+    body('s3Keys').optional().isArray(),
     body('save').optional().isBoolean(),
   ],
   async (req: AuthRequest, res: Response) => {
@@ -165,21 +202,31 @@ router.post(
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
-      // Get frames from uploaded files or base64 data
+      // Get frames from S3 keys, uploaded files, or base64 data
       let frames: Buffer[] = [];
+      let s3Keys: string[] = [];
 
-      if (req.files && Array.isArray(req.files) && req.files.length > 0) {
-        // Use uploaded files
+      // Option 1: S3 keys (preferred for large payloads)
+      if (req.body.s3Keys && Array.isArray(req.body.s3Keys) && req.body.s3Keys.length > 0) {
+        console.log(`[AI Analysis] Downloading ${req.body.s3Keys.length} frames from S3`);
+        s3Keys = req.body.s3Keys;
+        frames = await S3Service.downloadFrames(s3Keys);
+        console.log(`[AI Analysis] Downloaded ${frames.length} frames from S3`);
+      }
+      // Option 2: Uploaded files
+      else if (req.files && Array.isArray(req.files) && req.files.length > 0) {
         frames = (req.files as Express.Multer.File[]).map(file => file.buffer);
-      } else if (req.body.frames && Array.isArray(req.body.frames)) {
-        // Parse base64 encoded images
+      }
+      // Option 3: Base64 encoded images (fallback, not recommended for large payloads)
+      else if (req.body.frames && Array.isArray(req.body.frames)) {
+        console.log('[AI Analysis] Using base64 frames (consider using S3 for large payloads)');
         frames = req.body.frames.map((frame: string) => {
           // Remove data URL prefix if present
           const base64Data = frame.replace(/^data:image\/\w+;base64,/, '');
           return Buffer.from(base64Data, 'base64');
         });
       } else {
-        return res.status(400).json({ error: 'No frames provided' });
+        return res.status(400).json({ error: 'No frames provided. Use s3Keys, files, or frames array.' });
       }
 
       if (frames.length === 0) {
@@ -188,7 +235,18 @@ router.post(
 
       // Analyze the frames
       const sensorData = parseSensorData(req.body.sensorData);
-      const result = await AIAnalysisService.analyzeVideoFrames(frames, sensorData);
+      let result: any;
+      
+      try {
+        result = await AIAnalysisService.analyzeVideoFrames(frames, sensorData);
+      } finally {
+        // Clean up S3 objects after processing (async, don't wait)
+        if (s3Keys.length > 0) {
+          S3Service.deleteFrames(s3Keys).catch((err) => {
+            console.error('Error cleaning up S3 frames:', err);
+          });
+        }
+      }
 
       // Optionally save to database
       const saveToDatabase = req.body.save === true || req.body.save === 'true';

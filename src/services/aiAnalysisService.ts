@@ -59,7 +59,16 @@ export class AIAnalysisService {
       throw new Error('No frames provided for analysis');
     }
 
+    // Log payload size for debugging
     const base64Frames = frames.map(frame => frame.toString('base64'));
+    const payloadSize = JSON.stringify({ frames: base64Frames, sensorData }).length;
+    const payloadSizeMB = (payloadSize / (1024 * 1024)).toFixed(2);
+    console.log(`[AIAnalysisService] Sending ${frames.length} frames to Python service, payload size: ${payloadSizeMB} MB`);
+
+    // Warn if payload is very large
+    if (parseFloat(payloadSizeMB) > 30) {
+      console.warn(`[AIAnalysisService] WARNING: Large payload (${payloadSizeMB} MB) may cause timeout or memory issues`);
+    }
 
     const payload: Record<string, any> = {
       frames: base64Frames,
@@ -70,14 +79,32 @@ export class AIAnalysisService {
     }
 
     try {
+      // Increased timeout to 5 minutes for large payloads
+      // Also increase maxContentLength and maxBodyLength for axios
       const response = await axios.post(
         `${this.baseUrl}/ai/analyze-video`,
         payload,
-        { timeout: 120_000 }
+        { 
+          timeout: 300_000, // 5 minutes
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
       );
       return response.data.result;
     } catch (error: any) {
       console.error('Python AI analyze-video error:', error?.response?.data || error.message);
+      
+      // Provide more specific error messages
+      if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+        throw new Error('Video analysis timed out. The payload may be too large. Try reducing the number of frames.');
+      }
+      if (error.code === 'ECONNRESET' || error.message?.includes('socket hang up')) {
+        throw new Error('Connection to AI service was reset. The payload may be too large or the service may have crashed. Try reducing the number of frames.');
+      }
+      
       throw this.mapError(error, 'Video analysis failed');
     }
   }
