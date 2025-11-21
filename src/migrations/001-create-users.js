@@ -1,6 +1,6 @@
 'use strict';
 
-const { tableExists } = require('./_helpers');
+const { tableExists } = require('../utils/migration-helpers');
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {

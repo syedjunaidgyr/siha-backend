@@ -63,10 +63,10 @@ export async function runMigrations(sequelize: Sequelize): Promise<void> {
     ) as any[];
     const executedNames = new Set(executedMigrations.map((m: { name: string }) => m.name));
 
-    // Read all migration files
+    // Read all migration files (exclude helper files starting with underscore)
     const files = await readdir(migrationsPath);
     const migrationFiles = files
-      .filter(file => file.endsWith('.js'))
+      .filter(file => file.endsWith('.js') && !file.startsWith('_'))
       .sort();
 
     console.log(`Found ${migrationFiles.length} migration files.`);
