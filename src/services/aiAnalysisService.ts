@@ -69,12 +69,26 @@ export class AIAnalysisService {
     const compressedFrames = await Promise.all(
       frames.map(async (frame, index) => {
         try {
-          const image = sharp(frame);
+          // Use failOn: 'none' to ignore JPEG warnings (like SOS parameters)
+          // This allows us to process corrupted/problematic JPEG files
+          const image = sharp(frame, { 
+            failOn: 'none', // Don't fail on warnings
+            limitInputPixels: 268402689 // Allow very large images
+          });
+          
           const metadata = await image.metadata();
           
           if (!metadata.width || !metadata.height) {
             console.warn(`[AIAnalysisService] Frame ${index + 1}: Could not read dimensions, recompressing only`);
-            return await image.jpeg({ quality, mozjpeg: true }).toBuffer();
+            // Force re-encode through PNG to avoid JPEG issues
+            return await image
+              .png()
+              .jpeg({ 
+                quality, 
+                mozjpeg: false, // Use standard JPEG encoder for better compatibility
+                progressive: false // Avoid progressive issues
+              })
+              .toBuffer();
           }
           
           // Always resize to target dimensions (maintaining aspect ratio) for consistent compression
@@ -92,22 +106,88 @@ export class AIAnalysisService {
             console.log(`[AIAnalysisService] Frame ${index + 1}: Keeping dimensions ${metadata.width}x${metadata.height}, reducing quality to ${quality}%`);
           }
           
-          // Resize (with withoutEnlargement to prevent upscaling) and compress
-          return await image
-            .resize(newWidth, newHeight, {
-              fit: 'inside',
-              withoutEnlargement: true,
-            })
-            .jpeg({ 
-              quality, 
-              mozjpeg: true,
-              progressive: true, // Better compression for JPEG
-              optimizeScans: true // Additional optimization
-            })
-            .toBuffer();
+          // Try direct JPEG compression first
+          try {
+            return await image
+              .resize(newWidth, newHeight, {
+                fit: 'inside',
+                withoutEnlargement: true,
+              })
+              .jpeg({ 
+                quality, 
+                mozjpeg: false, // Use standard JPEG to avoid SOS parameter issues
+                progressive: false, // Disable progressive to avoid issues
+              })
+              .toBuffer();
+          } catch (jpegError: any) {
+            // If JPEG compression fails, convert through PNG first (more tolerant)
+            console.log(`[AIAnalysisService] Frame ${index + 1}: Direct JPEG failed, using PNG intermediate conversion`);
+            return await image
+              .resize(newWidth, newHeight, {
+                fit: 'inside',
+                withoutEnlargement: true,
+              })
+              .png() // Convert to PNG first to clean up any JPEG issues
+              .jpeg({ 
+                quality, 
+                mozjpeg: false,
+                progressive: false,
+              })
+              .toBuffer();
+          }
         } catch (error: any) {
-          console.warn(`[AIAnalysisService] Failed to compress frame ${index + 1}, using original: ${error.message}`);
-          return frame; // Return original if compression fails
+          // Last resort: try to just resize without recompressing
+          console.warn(`[AIAnalysisService] Frame ${index + 1}: Compression failed (${error.message}), attempting basic resize`);
+          try {
+            const image = sharp(frame, { failOn: 'none', limitInputPixels: 268402689 });
+            const metadata = await image.metadata();
+            if (metadata.width && metadata.height) {
+              const ratio = Math.min(
+                targetMaxWidth / metadata.width,
+                targetMaxHeight / metadata.height
+              );
+              const newWidth = Math.round(metadata.width * ratio);
+              const newHeight = Math.round(metadata.height * ratio);
+              
+              // Force resize to very small dimensions and low quality if all else fails
+              const forceWidth = Math.min(newWidth, 480);
+              const forceHeight = Math.min(newHeight, 360);
+              const forceQuality = Math.max(quality - 15, 60); // Lower quality as fallback
+              
+              console.log(`[AIAnalysisService] Frame ${index + 1}: Using aggressive fallback resize to ${forceWidth}x${forceHeight} @ ${forceQuality}%`);
+              
+              // Force through PNG to clean up JPEG issues, then resize and compress
+              return await image
+                .png() // Convert to PNG first
+                .resize(forceWidth, forceHeight, {
+                  fit: 'inside',
+                  withoutEnlargement: true,
+                })
+                .jpeg({ 
+                  quality: forceQuality, 
+                  mozjpeg: false, 
+                  progressive: false 
+                })
+                .toBuffer();
+            }
+          } catch (fallbackError: any) {
+            console.error(`[AIAnalysisService] Frame ${index + 1}: All compression methods failed: ${fallbackError.message}`);
+            
+            // Last desperate attempt: force to tiny image
+            try {
+              const image = sharp(frame, { failOn: 'none' });
+              return await image
+                .resize(320, 240, { fit: 'inside', withoutEnlargement: false })
+                .jpeg({ quality: 60, mozjpeg: false })
+                .toBuffer();
+            } catch (finalError: any) {
+              // This should never happen, but if it does, we need to fail the whole request
+              console.error(`[AIAnalysisService] Frame ${index + 1}: CRITICAL - Could not compress frame at all. Original size: ${(frame.length / 1024).toFixed(2)} KB`);
+              throw new Error(`Failed to compress frame ${index + 1}: ${finalError.message}`);
+            }
+          }
+          // This should never be reached due to throw above
+          throw new Error(`Failed to compress frame ${index + 1} after all attempts`);
         }
       })
     );
@@ -123,8 +203,8 @@ export class AIAnalysisService {
     // Limit frame count to prevent memory issues (max 12 frames for safety)
     const MAX_FRAMES = 12;
     const MAX_PAYLOAD_MB = 20; // Maximum payload size in MB (hard limit)
-    const COMPRESSION_THRESHOLD_MB = 12; // Start compressing if payload exceeds this
-    const TARGET_PAYLOAD_MB = 12; // Target size after compression (safety margin)
+    const COMPRESSION_THRESHOLD_MB = 10; // Start compressing if payload exceeds this (lower threshold)
+    const TARGET_PAYLOAD_MB = 10; // Target size after compression (more aggressive)
     
     if (frames.length > MAX_FRAMES) {
       console.warn(`[AIAnalysisService] Frame count (${frames.length}) exceeds maximum (${MAX_FRAMES}). Using first ${MAX_FRAMES} frames.`);
@@ -138,7 +218,8 @@ export class AIAnalysisService {
     
     console.log(`[AIAnalysisService] Initial payload size: ${payloadSizeMB.toFixed(2)} MB for ${frames.length} frames`);
 
-    // Always compress frames if payload is above threshold - more aggressive compression
+    // ALWAYS compress frames if payload is above threshold - mandatory compression
+    // This ensures we reduce payload size even for problematic JPEGs
     if (payloadSizeMB > COMPRESSION_THRESHOLD_MB) {
       console.log(`[AIAnalysisService] Payload size (${payloadSizeMB.toFixed(2)} MB) exceeds threshold (${COMPRESSION_THRESHOLD_MB} MB), compressing frames...`);
       
@@ -149,16 +230,19 @@ export class AIAnalysisService {
       const initialPayloadSizeMB = payloadSizeMB;
       
       // Determine starting compression level based on initial size
-      let startLevel = 1;
+      // Start more aggressively to handle large files
+      let startLevel = 2; // Default to moderate compression (960x540)
       if (payloadSizeMB > 25) {
-        startLevel = 3; // Start with aggressive compression for very large payloads
+        startLevel = 3; // Start with very aggressive compression for huge payloads
       } else if (payloadSizeMB > 18) {
-        startLevel = 2; // Start with moderate compression for large payloads
+        startLevel = 3; // Also use aggressive for large payloads
+      } else if (payloadSizeMB > 15) {
+        startLevel = 2; // Use moderate compression
       }
       
       while (payloadSizeMB > TARGET_PAYLOAD_MB && compressionAttempts < maxCompressionAttempts) {
         compressionAttempts++;
-        
+
         // Reduce dimensions and quality progressively
         let targetWidth = 1920;
         let targetHeight = 1080;
@@ -191,7 +275,31 @@ export class AIAnalysisService {
         
         console.log(`[AIAnalysisService] Compression attempt ${compressionAttempts}: Resizing to ${targetWidth}x${targetHeight}, quality ${quality}%`);
         
+        const framesBeforeCompression = compressedFrames.slice(); // Copy for comparison
         compressedFrames = await this.compressFrames(compressedFrames, targetWidth, targetHeight, quality);
+        
+        // Verify compression actually reduced size - check individual frame sizes
+        let totalCompressedSize = 0;
+        let totalOriginalSize = 0;
+        for (let i = 0; i < compressedFrames.length; i++) {
+          totalCompressedSize += compressedFrames[i].length;
+          totalOriginalSize += framesBeforeCompression[i]?.length || 0;
+        }
+        const compressionRatio = totalOriginalSize > 0 ? ((totalOriginalSize - totalCompressedSize) / totalOriginalSize) * 100 : 0;
+        console.log(`[AIAnalysisService] Compression ratio: ${compressionRatio.toFixed(1)}% (${(totalOriginalSize / 1024 / 1024).toFixed(2)} MB → ${(totalCompressedSize / 1024 / 1024).toFixed(2)} MB)`);
+        
+        // If compression didn't help (ratio < 10%), we have serious issues - reduce frames and try again
+        if (compressionRatio < 10 && compressionAttempts >= 2) {
+          if (compressedFrames.length > 6) {
+            console.warn(`[AIAnalysisService] Compression ineffective (${compressionRatio.toFixed(1)}% reduction), reducing frame count to 6`);
+            compressedFrames = compressedFrames.slice(0, 6);
+          }
+        }
+        
+        // Ensure we actually got smaller frames
+        if (totalCompressedSize >= totalOriginalSize * 0.95 && compressionAttempts < maxCompressionAttempts) {
+          console.warn(`[AIAnalysisService] Compression barely effective, trying more aggressive settings next attempt`);
+        }
         
         // Recalculate payload size
         base64Frames = compressedFrames.map(frame => frame.toString('base64'));
@@ -204,14 +312,43 @@ export class AIAnalysisService {
         if (payloadSizeMB <= TARGET_PAYLOAD_MB) {
           break;
         }
+        
+        // If we're still very large and have frames to spare, reduce earlier
+        if (payloadSizeMB > 18 && compressedFrames.length > 6 && compressionAttempts >= 2) {
+          console.warn(`[AIAnalysisService] Payload still very large, reducing to 6 frames`);
+          compressedFrames = compressedFrames.slice(0, 6);
+        }
       }
       
       // Update frames to compressed version
       frames = compressedFrames;
       
-      // If still too large after compression, reduce frame count
-      if (payloadSizeMB > MAX_PAYLOAD_MB && compressedFrames.length > 8) {
-        console.warn(`[AIAnalysisService] Payload still too large after compression. Reducing frame count from ${compressedFrames.length} to 8 frames.`);
+      // If still too large after compression, aggressively reduce frame count
+      if (payloadSizeMB > MAX_PAYLOAD_MB) {
+        // More aggressive frame reduction based on payload size
+        let targetFrameCount = 8;
+        if (payloadSizeMB > 30) {
+          targetFrameCount = 6; // Very aggressive for huge payloads
+        } else if (payloadSizeMB > 25) {
+          targetFrameCount = 6;
+        } else if (payloadSizeMB > 20) {
+          targetFrameCount = 8;
+        }
+        
+        if (compressedFrames.length > targetFrameCount) {
+          console.warn(`[AIAnalysisService] Payload (${payloadSizeMB.toFixed(2)} MB) still too large after compression. Reducing frame count from ${compressedFrames.length} to ${targetFrameCount} frames.`);
+          compressedFrames = compressedFrames.slice(0, targetFrameCount);
+          frames = compressedFrames;
+          
+          // Recalculate payload size
+          base64Frames = compressedFrames.map(frame => frame.toString('base64'));
+          payloadSize = JSON.stringify({ frames: base64Frames, sensorData }).length;
+          payloadSizeMB = payloadSize / (1024 * 1024);
+          console.log(`[AIAnalysisService] After reducing frame count: ${payloadSizeMB.toFixed(2)} MB for ${compressedFrames.length} frames`);
+        }
+      } else if (payloadSizeMB > 15 && compressedFrames.length > 8) {
+        // Also reduce if still large but within limit
+        console.warn(`[AIAnalysisService] Payload (${payloadSizeMB.toFixed(2)} MB) still large. Reducing to 8 frames for safety.`);
         compressedFrames = compressedFrames.slice(0, 8);
         frames = compressedFrames;
         
@@ -219,7 +356,7 @@ export class AIAnalysisService {
         base64Frames = compressedFrames.map(frame => frame.toString('base64'));
         payloadSize = JSON.stringify({ frames: base64Frames, sensorData }).length;
         payloadSizeMB = payloadSize / (1024 * 1024);
-        console.log(`[AIAnalysisService] After reducing frame count: ${payloadSizeMB.toFixed(2)} MB for ${compressedFrames.length} frames`);
+        console.log(`[AIAnalysisService] After safety frame reduction: ${payloadSizeMB.toFixed(2)} MB for ${compressedFrames.length} frames`);
       }
       
       if (payloadSizeMB > MAX_PAYLOAD_MB) {
