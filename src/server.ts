@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import dotenv from 'dotenv';
 import sequelize from './config/database';
 import { runMigrations } from './utils/runMigrations';
+import { ensureMetricTypeEnumValues } from './utils/ensureEnumValues';
 
 // Routes
 import authRoutes from './routes/auth';
@@ -99,6 +100,11 @@ async function startServer() {
     console.log('Running database migrations...');
     await runMigrations(sequelize);
     console.log('Database migrations completed.');
+
+    // Ensure ENUM values are present (safety check for migrations that might have been skipped)
+    console.log('Verifying ENUM values...');
+    await ensureMetricTypeEnumValues(sequelize);
+    console.log('ENUM values verified.');
 
     app.listen(PORT, '0.0.0.0', () => {
       // Get network IP address
