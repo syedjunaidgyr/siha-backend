@@ -65,6 +65,11 @@ app.get('/test', (req: Request, res: Response) => {
 });
 
 // API routes
+// Health check endpoint under /v1 for API clients
+app.get('/v1/health', (req: Request, res: Response) => {
+  console.log('API health check requested from:', req.ip);
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
 app.use('/v1/auth', authRoutes);
 app.use('/v1', metricsRoutes);
 app.use('/v1', devicesRoutes);
@@ -75,6 +80,8 @@ app.use('/v1', profileRoutes);
 app.use('/v1', lifestyleRoutes);
 app.use('/v1/ai/preventive-health', preventiveHealthRoutes);
 app.use('/v1/ai', aiAnalysisRoutes);
+// Legacy route alias: /api/ai/* -> /v1/ai/* (for backward compatibility)
+app.use('/api/ai', aiAnalysisRoutes);
 
 // Error handling middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
@@ -87,7 +94,13 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 // 404 handler
 app.use((req: Request, res: Response) => {
-  res.status(404).json({ error: 'Route not found' });
+  console.error(`404 - Route not found: ${req.method} ${req.url}`);
+  console.error('Request headers:', req.headers);
+  res.status(404).json({ 
+    error: 'Route not found',
+    method: req.method,
+    path: req.url,
+  });
 });
 
 // Database connection and server startup
