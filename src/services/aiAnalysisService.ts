@@ -59,15 +59,31 @@ export class AIAnalysisService {
       throw new Error('No frames provided for analysis');
     }
 
+    // Limit frame count to prevent memory issues (max 12 frames for safety)
+    const MAX_FRAMES = 12;
+    const MAX_PAYLOAD_MB = 20; // Maximum payload size in MB
+    
+    if (frames.length > MAX_FRAMES) {
+      console.warn(`[AIAnalysisService] Frame count (${frames.length}) exceeds maximum (${MAX_FRAMES}). Using first ${MAX_FRAMES} frames.`);
+      frames = frames.slice(0, MAX_FRAMES);
+    }
+
     // Log payload size for debugging
     const base64Frames = frames.map(frame => frame.toString('base64'));
     const payloadSize = JSON.stringify({ frames: base64Frames, sensorData }).length;
     const payloadSizeMB = (payloadSize / (1024 * 1024)).toFixed(2);
     console.log(`[AIAnalysisService] Sending ${frames.length} frames to Python service, payload size: ${payloadSizeMB} MB`);
 
-    // Warn if payload is very large
-    if (parseFloat(payloadSizeMB) > 30) {
-      console.warn(`[AIAnalysisService] WARNING: Large payload (${payloadSizeMB} MB) may cause timeout or memory issues`);
+    // Check payload size and reject if too large
+    if (parseFloat(payloadSizeMB) > MAX_PAYLOAD_MB) {
+      const errorMsg = `Payload too large (${payloadSizeMB} MB). Maximum allowed: ${MAX_PAYLOAD_MB} MB. Please reduce the number of frames or image resolution.`;
+      console.error(`[AIAnalysisService] ERROR: ${errorMsg}`);
+      throw new Error(errorMsg);
+    }
+
+    // Warn if payload is large but still acceptable
+    if (parseFloat(payloadSizeMB) > 15) {
+      console.warn(`[AIAnalysisService] WARNING: Large payload (${payloadSizeMB} MB). This may cause memory issues.`);
     }
 
     const payload: Record<string, any> = {
