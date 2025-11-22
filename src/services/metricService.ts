@@ -31,7 +31,41 @@ export class MetricService {
   }
 
   static async createBatchMetrics(userId: string, metrics: MetricInput[]) {
-    const records = metrics.map(metric => ({
+    // Filter out invalid metrics before saving
+    const MIN_CONFIDENCE = 0.5;
+    const validMetrics = metrics.filter(metric => {
+      // Skip if value is null, undefined, or 0 (invalid for vital signs)
+      // Note: 0 is valid for steps count, but not for vital signs like heart rate, temperature, etc.
+      const vitalSignTypes = [
+        'heart_rate', 'stress_level', 'oxygen_saturation', 'respiratory_rate', 
+        'temperature', 'blood_pressure_systolic', 'blood_pressure_diastolic'
+      ];
+      
+      if (vitalSignTypes.includes(metric.metric_type)) {
+        if (metric.value === null || metric.value === undefined || metric.value === 0) {
+          console.warn(`[MetricService] Skipping vital sign metric with invalid value: ${metric.metric_type} = ${metric.value}`);
+          return false;
+        }
+      }
+      
+      // Skip if confidence is too low (fallback scenario) - applies to all sources
+      if (metric.confidence !== undefined && metric.confidence !== null) {
+        const confidence = typeof metric.confidence === 'string' ? parseFloat(metric.confidence) : metric.confidence;
+        if (!isNaN(confidence) && confidence < MIN_CONFIDENCE) {
+          console.warn(`[MetricService] Skipping metric with low confidence: ${metric.metric_type} confidence=${confidence} < ${MIN_CONFIDENCE} (source: ${metric.source})`);
+          return false;
+        }
+      }
+      
+      return true;
+    });
+
+    if (validMetrics.length === 0) {
+      console.warn('[MetricService] No valid metrics to save after filtering');
+      return [];
+    }
+
+    const records = validMetrics.map(metric => ({
       user_id: userId,
       device_id: metric.device_id,
       metric_type: metric.metric_type as any,

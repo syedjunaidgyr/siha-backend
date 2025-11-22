@@ -22,7 +22,7 @@ export interface FaceAnalysisResult {
   [key: string]: any;
 }
 
-const DEFAULT_AI_BASE_URL = 'http://13.203.161.24:3001/api';
+const DEFAULT_AI_BASE_URL = 'http://192.168.0.101:3001/api';
 
 export class AIAnalysisService {
   private static get baseUrl(): string {
@@ -195,7 +195,7 @@ export class AIAnalysisService {
     return compressedFrames;
   }
 
-  static async analyzeVideoFrames(frames: Buffer[], sensorData?: any): Promise<FaceAnalysisResult> {
+  static async analyzeVideoFrames(frames: Buffer[], sensorData?: any, userProfile?: any): Promise<FaceAnalysisResult> {
     if (!frames || frames.length === 0) {
       throw new Error('No frames provided for analysis');
     }
@@ -379,6 +379,11 @@ export class AIAnalysisService {
     if (sensorData) {
       payload.sensorData = sensorData;
     }
+    
+    // Add user profile for calibration and personalized baselines
+    if (userProfile) {
+      payload.userProfile = userProfile;
+    }
 
     try {
       // Increased timeout to 5 minutes for large payloads
@@ -397,7 +402,16 @@ export class AIAnalysisService {
       );
       return response.data.result;
     } catch (error: any) {
-      console.error('Python AI analyze-video error:', error?.response?.data || error.message);
+      // Enhanced error logging
+      console.error('[AIAnalysisService] Python AI analyze-video error:', {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        data: error.response?.data,
+        url: error.config?.url,
+        baseURL: error.config?.baseURL,
+      });
       
       // Provide more specific error messages
       if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
@@ -405,6 +419,75 @@ export class AIAnalysisService {
       }
       if (error.code === 'ECONNRESET' || error.message?.includes('socket hang up')) {
         throw new Error('Connection to AI service was reset. The payload may be too large or the service may have crashed. Try reducing the number of frames.');
+      }
+      
+      // Log the actual error from AI service if available
+      if (error.response?.data?.error || error.response?.data?.message) {
+        const aiError = error.response.data.error || error.response.data.message;
+        console.error('[AIAnalysisService] AI service error details:', aiError);
+        throw new Error(`Video analysis failed: ${aiError}`);
+      }
+      
+      throw this.mapError(error, 'Video analysis failed');
+    }
+  }
+
+  /**
+   * Analyze a video file for vital signs
+   * Sends the video file directly to Python AI service for processing
+   */
+  static async analyzeVideoFile(
+    videoBuffer: Buffer,
+    mimeType: string,
+    sensorData?: any,
+    userProfile?: any
+  ): Promise<FaceAnalysisResult> {
+    if (!videoBuffer || videoBuffer.length === 0) {
+      throw new Error('Video buffer is required');
+    }
+
+    console.log(`[AIAnalysisService] Analyzing video file: ${videoBuffer.length} bytes, type: ${mimeType}`);
+
+    const payload: Record<string, any> = {
+      video: videoBuffer.toString('base64'),
+      mimeType: mimeType,
+    };
+
+    if (sensorData) {
+      payload.sensorData = sensorData;
+    }
+
+    if (userProfile) {
+      payload.userProfile = userProfile;
+    }
+
+    try {
+      const response = await axios.post(
+        `${this.baseUrl}/ai/analyze-video-file`,
+        payload,
+        { 
+          timeout: 180_000, // 3 minutes for video processing
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+
+      if (!response.data || !response.data.success) {
+        throw new Error(response.data?.error || 'Video analysis failed');
+      }
+
+      return response.data.result;
+    } catch (error: any) {
+      console.error('[AIAnalysisService] Python AI analyze-video-file error:', error?.response?.data || error.message);
+      
+      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        throw new Error('Video analysis timed out. The video file may be too large or processing took too long.');
+      }
+      
+      if (error.response?.data?.error) {
+        const aiError = error.response.data.error;
+        throw new Error(`Video analysis failed: ${aiError}`);
       }
       
       throw this.mapError(error, 'Video analysis failed');

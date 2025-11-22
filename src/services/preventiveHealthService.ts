@@ -3,7 +3,7 @@ import { Op } from 'sequelize';
 import MetricRecord from '../models/MetricRecord';
 import User from '../models/User';
 
-const DEFAULT_AI_BASE_URL = 'http://13.203.161.24:3001/api';
+const DEFAULT_AI_BASE_URL = 'http://192.168.0.101:3001/api';
 
 interface InsightOptions {
   lookbackDays?: number;
@@ -13,7 +13,14 @@ interface InsightOptions {
 
 export class PreventiveHealthService {
   private static get baseUrl(): string {
-    return process.env.AI_SERVICE_PYTHON_URL || DEFAULT_AI_BASE_URL;
+    const url = process.env.AI_SERVICE_PYTHON_URL || DEFAULT_AI_BASE_URL;
+    // Log the URL being used (only once to avoid spam)
+    if (!(this as any)._urlLogged) {
+      console.log(`[PreventiveHealthService] Using AI service URL: ${url}`);
+      console.log(`[PreventiveHealthService] Environment variable AI_SERVICE_PYTHON_URL: ${process.env.AI_SERVICE_PYTHON_URL || 'not set'}`);
+      (this as any)._urlLogged = true;
+    }
+    return url;
   }
 
   static async getInsights(userId: string, options?: InsightOptions) {
@@ -29,6 +36,17 @@ export class PreventiveHealthService {
     }
 
     try {
+      // Validate metrics before sending
+      if (!Array.isArray(metricsPayload)) {
+        throw new Error('Metrics payload must be an array');
+      }
+      
+      if (metricsPayload.length === 0) {
+        throw new Error('No metrics available for preventive insights');
+      }
+
+      console.log(`[PreventiveHealthService] Sending ${metricsPayload.length} metrics to AI service`);
+      
       const response = await axios.post(
         `${this.baseUrl}/ai/preventive-health`,
         {
@@ -36,11 +54,27 @@ export class PreventiveHealthService {
           lookbackDays,
           userProfile: options?.userProfile,
         },
-        { timeout: 30_000 }
+        { timeout: 120_000 } // 2 minutes - increased from 30s to handle complex analysis
       );
       return response.data.result;
     } catch (error: any) {
-      console.error('[PreventiveHealthService] AI request failed:', error?.response?.data || error.message);
+      // Log detailed error information
+      if (error.response) {
+        console.error('[PreventiveHealthService] AI service error response:', {
+          status: error.response.status,
+          statusText: error.response.statusText,
+          data: error.response.data,
+          url: error.config?.url,
+        });
+      } else if (error.request) {
+        console.error('[PreventiveHealthService] AI service request error:', {
+          message: error.message,
+          code: error.code,
+          url: error.config?.url,
+        });
+      } else {
+        console.error('[PreventiveHealthService] AI request failed:', error.message);
+      }
       throw this.mapError(error);
     }
   }

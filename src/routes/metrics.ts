@@ -31,7 +31,8 @@ router.post(
         ...m,
         start_time: new Date(m.start_time),
         end_time: m.end_time ? new Date(m.end_time) : undefined,
-        source: 'healthkit',
+        // Preserve source if provided (e.g., 'ai_face_analysis'), otherwise default to 'healthkit'
+        source: m.source || 'healthkit',
         device_id,
       }));
 

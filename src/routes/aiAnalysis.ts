@@ -5,6 +5,9 @@ import { AIAnalysisService } from '../services/aiAnalysisService';
 import { authenticate, AuthRequest } from '../middleware/auth';
 import { MetricService } from '../services/metricService';
 import { S3Service } from '../services/s3Service';
+import { ProfileService } from '../services/profileService';
+import { PreventiveHealthService } from '../services/preventiveHealthService';
+import User from '../models/User';
 
 const router = Router();
 
@@ -21,6 +24,22 @@ const upload = multer({
       cb(null, true);
     } else {
       cb(new Error('Only image files are allowed'));
+    }
+  },
+});
+
+// Configure multer for video file uploads
+const videoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 150 * 1024 * 1024, // 150MB limit for video files (30s videos can be 60-80MB)
+  },
+  fileFilter: (req, file, cb) => {
+    // Accept video files
+    if (file.mimetype.startsWith('video/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only video files are allowed'));
     }
   },
 });
@@ -68,7 +87,29 @@ router.post(
         const timestamp = result.vitals.timestamp || new Date();
         const metrics: any[] = [];
 
-        if (result.vitals.heartRate !== undefined) {
+        // Minimum confidence threshold for saving metrics (0.5 = 50%)
+        const MIN_CONFIDENCE = 0.5;
+        const confidence = typeof result.vitals.confidence === 'string' 
+          ? parseFloat(result.vitals.confidence) 
+          : result.vitals.confidence;
+
+        // Helper function to validate if a metric should be saved
+        const shouldSaveMetric = (value: any): boolean => {
+          // Don't save if value is null, undefined, or 0 (invalid)
+          if (value === null || value === undefined || value === 0) {
+            return false;
+          }
+          
+          // Don't save if confidence is too low (fallback scenario)
+          if (confidence !== undefined && confidence < MIN_CONFIDENCE) {
+            console.warn(`[AI Analysis] Skipping metric with low confidence: ${confidence} < ${MIN_CONFIDENCE}`);
+            return false;
+          }
+          
+          return true;
+        };
+
+        if (result.vitals.heartRate !== undefined && shouldSaveMetric(result.vitals.heartRate)) {
           metrics.push({
             metric_type: 'heart_rate',
             value: result.vitals.heartRate,
@@ -79,7 +120,7 @@ router.post(
           });
         }
 
-        if (result.vitals.stressLevel !== undefined) {
+        if (result.vitals.stressLevel !== undefined && shouldSaveMetric(result.vitals.stressLevel)) {
           metrics.push({
             metric_type: 'stress_level',
             value: result.vitals.stressLevel,
@@ -90,7 +131,7 @@ router.post(
           });
         }
 
-        if (result.vitals.oxygenSaturation !== undefined) {
+        if (result.vitals.oxygenSaturation !== undefined && shouldSaveMetric(result.vitals.oxygenSaturation)) {
           metrics.push({
             metric_type: 'oxygen_saturation',
             value: result.vitals.oxygenSaturation,
@@ -101,7 +142,7 @@ router.post(
           });
         }
 
-        if (result.vitals.respiratoryRate !== undefined) {
+        if (result.vitals.respiratoryRate !== undefined && shouldSaveMetric(result.vitals.respiratoryRate)) {
           metrics.push({
             metric_type: 'respiratory_rate',
             value: result.vitals.respiratoryRate,
@@ -112,7 +153,7 @@ router.post(
           });
         }
 
-        if (result.vitals.temperature !== undefined) {
+        if (result.vitals.temperature !== undefined && shouldSaveMetric(result.vitals.temperature)) {
           metrics.push({
             metric_type: 'temperature',
             value: result.vitals.temperature,
@@ -123,8 +164,35 @@ router.post(
           });
         }
 
+        if (result.vitals.bloodPressure !== undefined) {
+          // Save systolic BP only if valid
+          if (result.vitals.bloodPressure.systolic !== undefined && shouldSaveMetric(result.vitals.bloodPressure.systolic)) {
+            metrics.push({
+              metric_type: 'blood_pressure_systolic',
+              value: result.vitals.bloodPressure.systolic,
+              unit: 'mmHg',
+              start_time: timestamp,
+              source: 'ai_face_analysis',
+              confidence: result.vitals.confidence,
+            });
+          }
+          // Save diastolic BP only if valid
+          if (result.vitals.bloodPressure.diastolic !== undefined && shouldSaveMetric(result.vitals.bloodPressure.diastolic)) {
+            metrics.push({
+              metric_type: 'blood_pressure_diastolic',
+              value: result.vitals.bloodPressure.diastolic,
+              unit: 'mmHg',
+              start_time: timestamp,
+              source: 'ai_face_analysis',
+              confidence: result.vitals.confidence,
+            });
+          }
+        }
+
         if (metrics.length > 0) {
           await MetricService.createBatchMetrics(req.user.id, metrics);
+        } else {
+          console.warn('[AI Analysis] No metrics to save - all vital signs were filtered out (low confidence or invalid values)');
         }
       }
 
@@ -242,10 +310,24 @@ router.post(
 
       // Analyze the frames
       const sensorData = parseSensorData(req.body.sensorData);
+      
+      // Get user profile for calibration and personalized baselines
+      let userProfile: any = undefined;
+      try {
+        const user = await User.findByPk(req.user.id);
+        if (user) {
+          userProfile = PreventiveHealthService.buildUserProfilePayload(user);
+          console.log(`[AI Analysis] User profile loaded for calibration: age=${userProfile?.age}, gender=${userProfile?.gender}`);
+        }
+      } catch (profileError: any) {
+        console.warn(`[AI Analysis] Could not load user profile: ${profileError.message}. Continuing without user profile.`);
+        // Continue without user profile - calibration will use defaults
+      }
+      
       let result: any;
       
       try {
-        result = await AIAnalysisService.analyzeVideoFrames(frames, sensorData);
+        result = await AIAnalysisService.analyzeVideoFrames(frames, sensorData, userProfile);
       } finally {
         // Clean up S3 objects after processing (async, don't wait)
         if (s3Keys.length > 0) {
@@ -262,7 +344,29 @@ router.post(
         const timestamp = result.vitals.timestamp || new Date();
         const metrics: any[] = [];
 
-        if (result.vitals.heartRate !== undefined) {
+        // Minimum confidence threshold for saving metrics (0.5 = 50%)
+        const MIN_CONFIDENCE = 0.5;
+        const confidence = typeof result.vitals.confidence === 'string' 
+          ? parseFloat(result.vitals.confidence) 
+          : result.vitals.confidence;
+
+        // Helper function to validate if a metric should be saved
+        const shouldSaveMetric = (value: any): boolean => {
+          // Don't save if value is null, undefined, or 0 (invalid)
+          if (value === null || value === undefined || value === 0) {
+            return false;
+          }
+          
+          // Don't save if confidence is too low (fallback scenario)
+          if (confidence !== undefined && confidence < MIN_CONFIDENCE) {
+            console.warn(`[AI Analysis] Skipping metric with low confidence: ${confidence} < ${MIN_CONFIDENCE}`);
+            return false;
+          }
+          
+          return true;
+        };
+
+        if (result.vitals.heartRate !== undefined && shouldSaveMetric(result.vitals.heartRate)) {
           metrics.push({
             metric_type: 'heart_rate',
             value: result.vitals.heartRate,
@@ -273,7 +377,7 @@ router.post(
           });
         }
 
-        if (result.vitals.stressLevel !== undefined) {
+        if (result.vitals.stressLevel !== undefined && shouldSaveMetric(result.vitals.stressLevel)) {
           metrics.push({
             metric_type: 'stress_level',
             value: result.vitals.stressLevel,
@@ -284,7 +388,7 @@ router.post(
           });
         }
 
-        if (result.vitals.oxygenSaturation !== undefined) {
+        if (result.vitals.oxygenSaturation !== undefined && shouldSaveMetric(result.vitals.oxygenSaturation)) {
           metrics.push({
             metric_type: 'oxygen_saturation',
             value: result.vitals.oxygenSaturation,
@@ -295,7 +399,7 @@ router.post(
           });
         }
 
-        if (result.vitals.respiratoryRate !== undefined) {
+        if (result.vitals.respiratoryRate !== undefined && shouldSaveMetric(result.vitals.respiratoryRate)) {
           metrics.push({
             metric_type: 'respiratory_rate',
             value: result.vitals.respiratoryRate,
@@ -306,7 +410,7 @@ router.post(
           });
         }
 
-        if (result.vitals.temperature !== undefined) {
+        if (result.vitals.temperature !== undefined && shouldSaveMetric(result.vitals.temperature)) {
           metrics.push({
             metric_type: 'temperature',
             value: result.vitals.temperature,
@@ -315,6 +419,214 @@ router.post(
             source: 'ai_face_analysis',
             confidence: result.vitals.confidence,
           });
+        }
+
+        if (result.vitals.bloodPressure !== undefined) {
+          // Save systolic BP only if valid
+          if (result.vitals.bloodPressure.systolic !== undefined && shouldSaveMetric(result.vitals.bloodPressure.systolic)) {
+            metrics.push({
+              metric_type: 'blood_pressure_systolic',
+              value: result.vitals.bloodPressure.systolic,
+              unit: 'mmHg',
+              start_time: timestamp,
+              source: 'ai_face_analysis',
+              confidence: result.vitals.confidence,
+            });
+          }
+          // Save diastolic BP only if valid
+          if (result.vitals.bloodPressure.diastolic !== undefined && shouldSaveMetric(result.vitals.bloodPressure.diastolic)) {
+            metrics.push({
+              metric_type: 'blood_pressure_diastolic',
+              value: result.vitals.bloodPressure.diastolic,
+              unit: 'mmHg',
+              start_time: timestamp,
+              source: 'ai_face_analysis',
+              confidence: result.vitals.confidence,
+            });
+          }
+        }
+
+        if (metrics.length > 0) {
+          await MetricService.createBatchMetrics(req.user.id, metrics);
+        } else {
+          console.warn('[AI Analysis] No metrics to save - all vital signs were filtered out (low confidence or invalid values)');
+        }
+      }
+
+      res.json({
+        success: true,
+        result,
+      });
+    } catch (error: any) {
+      console.error('[AI Analysis Route] Video analysis error:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      });
+      res.status(500).json({
+        error: 'Analysis failed',
+        message: error.message || 'Unknown error occurred during video analysis',
+      });
+    }
+  }
+);
+
+/**
+ * POST /v1/ai/analyze-video-file
+ * Analyze a video file for vital signs (video-based pipeline)
+ */
+router.post(
+  '/analyze-video-file',
+  authenticate,
+  videoUpload.single('video'),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: 'No video file provided' });
+      }
+
+      console.log(`[AI Analysis] Video file received: ${req.file.size} bytes, type: ${req.file.mimetype}`);
+
+      const sensorData = parseSensorData(req.body.sensorData);
+      let userProfile = req.body.userProfile 
+        ? (typeof req.body.userProfile === 'string' ? JSON.parse(req.body.userProfile) : req.body.userProfile)
+        : undefined;
+
+      // Get user profile if not provided
+      if (!userProfile) {
+        try {
+          const profile = await ProfileService.getProfile(req.user.id);
+          if (profile) {
+            // Calculate age from date_of_birth
+            let age: number | undefined;
+            if (profile.date_of_birth) {
+              const dob = profile.date_of_birth instanceof Date 
+                ? profile.date_of_birth 
+                : new Date(profile.date_of_birth);
+              const diffMs = Date.now() - dob.getTime();
+              age = Math.floor(diffMs / (1000 * 60 * 60 * 24 * 365.25));
+            }
+            
+            userProfile = {
+              age: age,
+              gender: profile.gender,
+            };
+          }
+        } catch (error) {
+          console.warn('[AI Analysis] Could not load user profile:', error);
+        }
+      }
+
+      // Analyze video file
+      const result = await AIAnalysisService.analyzeVideoFile(
+        req.file.buffer,
+        req.file.mimetype,
+        sensorData,
+        userProfile
+      );
+
+      // Save to database if requested
+      const saveToDatabase = req.body.save === 'true' || req.body.save === true;
+      
+      if (saveToDatabase && result.faceDetected && result.vitals) {
+        const timestamp = result.vitals.timestamp || new Date();
+        const metrics: any[] = [];
+
+        const MIN_CONFIDENCE = 0.5;
+        const confidence = typeof result.vitals.confidence === 'string' 
+          ? parseFloat(result.vitals.confidence) 
+          : result.vitals.confidence;
+
+        const shouldSaveMetric = (value: any): boolean => {
+          if (value === null || value === undefined || value === 0) {
+            return false;
+          }
+          if (confidence !== undefined && confidence < MIN_CONFIDENCE) {
+            return false;
+          }
+          return true;
+        };
+
+        if (result.vitals.heartRate !== undefined && shouldSaveMetric(result.vitals.heartRate)) {
+          metrics.push({
+            metric_type: 'heart_rate',
+            value: result.vitals.heartRate,
+            unit: 'bpm',
+            start_time: timestamp,
+            source: 'ai_face_analysis',
+            confidence: confidence,
+          });
+        }
+
+        if (result.vitals.stressLevel !== undefined && shouldSaveMetric(result.vitals.stressLevel)) {
+          metrics.push({
+            metric_type: 'stress_level',
+            value: result.vitals.stressLevel,
+            unit: 'score',
+            start_time: timestamp,
+            source: 'ai_face_analysis',
+            confidence: confidence,
+          });
+        }
+
+        if (result.vitals.oxygenSaturation !== undefined && shouldSaveMetric(result.vitals.oxygenSaturation)) {
+          metrics.push({
+            metric_type: 'oxygen_saturation',
+            value: result.vitals.oxygenSaturation,
+            unit: '%',
+            start_time: timestamp,
+            source: 'ai_face_analysis',
+            confidence: confidence,
+          });
+        }
+
+        if (result.vitals.respiratoryRate !== undefined && shouldSaveMetric(result.vitals.respiratoryRate)) {
+          metrics.push({
+            metric_type: 'respiratory_rate',
+            value: result.vitals.respiratoryRate,
+            unit: 'breaths/min',
+            start_time: timestamp,
+            source: 'ai_face_analysis',
+            confidence: confidence,
+          });
+        }
+
+        if (result.vitals.temperature !== undefined && shouldSaveMetric(result.vitals.temperature)) {
+          metrics.push({
+            metric_type: 'temperature',
+            value: result.vitals.temperature,
+            unit: '°C',
+            start_time: timestamp,
+            source: 'ai_face_analysis',
+            confidence: confidence,
+          });
+        }
+
+        if (result.vitals.bloodPressure !== undefined) {
+          if (result.vitals.bloodPressure.systolic !== undefined && shouldSaveMetric(result.vitals.bloodPressure.systolic)) {
+            metrics.push({
+              metric_type: 'blood_pressure_systolic',
+              value: result.vitals.bloodPressure.systolic,
+              unit: 'mmHg',
+              start_time: timestamp,
+              source: 'ai_face_analysis',
+              confidence: confidence,
+            });
+          }
+          if (result.vitals.bloodPressure.diastolic !== undefined && shouldSaveMetric(result.vitals.bloodPressure.diastolic)) {
+            metrics.push({
+              metric_type: 'blood_pressure_diastolic',
+              value: result.vitals.bloodPressure.diastolic,
+              unit: 'mmHg',
+              start_time: timestamp,
+              source: 'ai_face_analysis',
+              confidence: confidence,
+            });
+          }
         }
 
         if (metrics.length > 0) {
@@ -327,10 +639,14 @@ router.post(
         result,
       });
     } catch (error: any) {
-      console.error('AI video analysis error:', error);
+      console.error('[AI Analysis Route] Video file analysis error:', {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+      });
       res.status(500).json({
         error: 'Analysis failed',
-        message: error.message,
+        message: error.message || 'Unknown error occurred during video file analysis',
       });
     }
   }
