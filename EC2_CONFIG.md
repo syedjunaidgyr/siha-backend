@@ -3,8 +3,8 @@
 ## Service URLs
 
 Both services run on the same EC2 instance:
-- **Backend**: `http://192.168.0.101:4000`
-- **AI Service**: `http://192.168.0.101:3001`
+- **Backend**: `http://13.203.161.24:4000`
+- **AI Service**: `http://13.203.161.24:3001`
 
 ## Environment Variables
 
@@ -13,8 +13,8 @@ The backend is configured to connect to the AI service using the IP address by d
 ### Default Configuration
 
 The backend services use these defaults:
-- `AIAnalysisService`: `http://192.168.0.101:3001/api`
-- `PreventiveHealthService`: `http://192.168.0.101:3001/api`
+- `AIAnalysisService`: `http://13.203.161.24:3001/api`
+- `PreventiveHealthService`: `http://13.203.161.24:3001/api`
 
 ### Override with Environment Variable
 
@@ -23,11 +23,11 @@ You can override the AI service URL by setting the `AI_SERVICE_PYTHON_URL` envir
 ```bash
 # In PM2 ecosystem.config.js
 env: {
-  AI_SERVICE_PYTHON_URL: 'http://192.168.0.101:3001/api'
+  AI_SERVICE_PYTHON_URL: 'http://13.203.161.24:3001/api'
 }
 
 # Or in .env file
-AI_SERVICE_PYTHON_URL=http://192.168.0.101:3001/api
+AI_SERVICE_PYTHON_URL=http://13.203.161.24:3001/api
 ```
 
 ## Verification
@@ -36,7 +36,7 @@ To verify the backend can connect to the AI service:
 
 ```bash
 # From backend server, test the connection
-curl http://192.168.0.101:3001/health
+curl http://13.203.161.24:3001/health
 
 # Should return:
 # {"status":"ok","service":"ai-analysis-python","modelsLoaded":true,...}
@@ -57,7 +57,7 @@ Since both services are on the same instance, internal communication via IP shou
 1. **Verify AI service is running:**
    ```bash
    pm2 status | grep siha-ai
-   curl http://192.168.0.101:3001/health
+   curl http://13.203.161.24:3001/health
    ```
 
 2. **Check if AI service is listening:**
@@ -84,7 +84,7 @@ If you prefer to use `localhost` instead of the IP (since both services are on t
 
 2. Change from:
    ```typescript
-   const DEFAULT_AI_BASE_URL = 'http://192.168.0.101:3001/api';
+   const DEFAULT_AI_BASE_URL = 'http://13.203.161.24:3001/api';
    ```
    
    To:
