@@ -253,6 +253,36 @@ router.get(
 );
 
 /**
+ * GET /v1/ai/video-upload-url
+ * Get presigned S3 URL for uploading a video file
+ */
+router.get(
+  '/video-upload-url',
+  authenticate,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      if (!req.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      console.log(`[AI Analysis] Generating video upload URL for user ${req.user.id}`);
+      
+      const uploadInfo = await S3Service.getVideoUploadUrl(req.user.id);
+      
+      console.log(`[AI Analysis] Generated video upload URL: ${uploadInfo.key}`);
+
+      res.json({
+        uploadUrl: uploadInfo.uploadUrl,
+        key: uploadInfo.key,
+      });
+    } catch (error: any) {
+      console.error('Error generating video upload URL:', error);
+      res.status(500).json({ error: 'Failed to generate video upload URL', message: error.message });
+    }
+  }
+);
+
+/**
  * POST /v1/ai/analyze-video
  * Analyze multiple frames (video sequence) for vital signs
  * Accepts S3 keys (preferred), multiple image files, or base64 encoded images
@@ -474,6 +504,7 @@ router.post(
 /**
  * POST /v1/ai/analyze-video-file
  * Analyze a video file for vital signs (video-based pipeline)
+ * Accepts either S3 key (preferred) or multipart file upload
  */
 router.post(
   '/analyze-video-file',
@@ -484,12 +515,6 @@ router.post(
       if (!req.user) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
-
-      if (!req.file) {
-        return res.status(400).json({ error: 'No video file provided' });
-      }
-
-      console.log(`[AI Analysis] Video file received: ${req.file.size} bytes, type: ${req.file.mimetype}`);
 
       const sensorData = parseSensorData(req.body.sensorData);
       let userProfile = req.body.userProfile 
@@ -521,13 +546,39 @@ router.post(
         }
       }
 
+      let videoBuffer: Buffer;
+      let mimeType: string = 'video/mp4';
+
+      // Option 1: S3 key (preferred for large files)
+      if (req.body.s3Key && typeof req.body.s3Key === 'string') {
+        console.log(`[AI Analysis] Downloading video from S3: ${req.body.s3Key}`);
+        videoBuffer = await S3Service.downloadVideo(req.body.s3Key);
+        console.log(`[AI Analysis] Video downloaded from S3: ${videoBuffer.length} bytes`);
+      } 
+      // Option 2: Multipart file upload
+      else if (req.file) {
+        console.log(`[AI Analysis] Video file received: ${req.file.size} bytes, type: ${req.file.mimetype}`);
+        videoBuffer = req.file.buffer;
+        mimeType = req.file.mimetype;
+      } 
+      else {
+        return res.status(400).json({ error: 'No video file provided. Use s3Key or upload a file.' });
+      }
+
       // Analyze video file
       const result = await AIAnalysisService.analyzeVideoFile(
-        req.file.buffer,
-        req.file.mimetype,
+        videoBuffer,
+        mimeType,
         sensorData,
         userProfile
       );
+
+      // Clean up S3 video after processing (async, don't wait)
+      if (req.body.s3Key) {
+        S3Service.deleteVideo(req.body.s3Key).catch((err) => {
+          console.error('Error cleaning up S3 video:', err);
+        });
+      }
 
       // Save to database if requested
       const saveToDatabase = req.body.save === 'true' || req.body.save === true;

@@ -128,5 +128,72 @@ export class S3Service {
 
     return getSignedUrl(s3Client, command, { expiresIn: DOWNLOAD_EXPIRY });
   }
+
+  /**
+   * Generate presigned URL for uploading a video file to S3
+   */
+  static async getVideoUploadUrl(userId: string): Promise<S3UploadInfo> {
+    try {
+      const timestamp = Date.now();
+      const uniqueId = randomUUID().substring(0, 8);
+      const key = `vitals-videos/${userId}/${timestamp}-${uniqueId}.mp4`;
+      
+      const command = new PutObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+        ContentType: 'video/mp4',
+      });
+
+      const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: UPLOAD_EXPIRY });
+
+      if (!uploadUrl) {
+        throw new Error('Failed to generate presigned URL');
+      }
+
+      return {
+        key,
+        uploadUrl,
+      };
+    } catch (error: any) {
+      console.error(`[S3Service] Error generating video upload URL:`, error);
+      throw new Error(`Failed to generate S3 video upload URL: ${error.message || 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Download a video file from S3 by key
+   */
+  static async downloadVideo(key: string): Promise<Buffer> {
+    const command = new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+    });
+
+    const response = await s3Client.send(command);
+    
+    if (!response.Body) {
+      throw new Error(`No body in S3 response for key: ${key}`);
+    }
+
+    // Convert stream to buffer
+    const chunks: Uint8Array[] = [];
+    for await (const chunk of response.Body as any) {
+      chunks.push(chunk);
+    }
+    
+    return Buffer.concat(chunks);
+  }
+
+  /**
+   * Delete a video file from S3
+   */
+  static async deleteVideo(key: string): Promise<void> {
+    const command = new DeleteObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+    });
+
+    await s3Client.send(command);
+  }
 }
 
