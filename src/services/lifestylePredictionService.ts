@@ -33,7 +33,8 @@ export class LifestylePredictionService {
 
     const userProfile = PreventiveHealthService.buildUserProfilePayload(user);
 
-    // Try to get AI insights, but fall back to defaults if no metrics are available
+    // Always get AI insights - no fallback to hardcoded defaults
+    // AI service will generate recommendations based on user profile even without metrics
     let insights;
     try {
       insights = await PreventiveHealthService.getInsights(userId, {
@@ -41,20 +42,16 @@ export class LifestylePredictionService {
         userProfile,
       });
     } catch (error: any) {
-      // If no metrics are available, generate defaults based on user profile
-      if (error.message === 'No metrics available for preventive insights') {
-        console.log(`[LifestylePredictionService] No metrics found for user ${userId}, generating defaults from profile`);
-        return this.generateDefaultPrediction(user);
-      }
-      // Re-throw other errors
-      throw error;
+      // Re-throw error - don't fall back to hardcoded defaults
+      console.error(`[LifestylePredictionService] Failed to get AI insights for user ${userId}:`, error);
+      throw new Error(`Failed to generate AI lifestyle predictions: ${error.message}`);
     }
 
     const lifestyleCard = insights?.lifestyleCard;
     if (!lifestyleCard) {
-      // Fall back to defaults if AI service doesn't return a lifestyle card
-      console.log(`[LifestylePredictionService] AI lifestyle card unavailable, generating defaults from profile`);
-      return this.generateDefaultPrediction(user);
+      // AI service should always return a lifestyle card
+      console.error(`[LifestylePredictionService] AI service did not return lifestyle card for user ${userId}`);
+      throw new Error('AI service did not return lifestyle recommendations. Please try again.');
     }
 
     const lifestylePlan = insights?.lifestylePlan;
@@ -92,6 +89,7 @@ export class LifestylePredictionService {
   /**
    * Generate default lifestyle prediction based on user profile only
    * Uses BMR/TDEE calculations similar to the AI service
+   * @deprecated This method should not be used - all predictions must come from AI service
    */
   private static generateDefaultPrediction(user: User): LifestylePredictionData {
     const gender = (user.gender || 'other').toLowerCase();

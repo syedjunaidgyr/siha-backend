@@ -31,21 +31,17 @@ export class PreventiveHealthService {
 
     const metricsPayload = options?.metricsOverride ?? await this.fetchMetrics(userId, fromDate);
 
-    if (!metricsPayload.length) {
-      throw new Error('No metrics available for preventive insights');
+    // Allow empty metrics array - AI service will generate recommendations based on user profile
+    if (!Array.isArray(metricsPayload)) {
+      throw new Error('Metrics payload must be an array');
     }
 
     try {
-      // Validate metrics before sending
-      if (!Array.isArray(metricsPayload)) {
-        throw new Error('Metrics payload must be an array');
-      }
-      
       if (metricsPayload.length === 0) {
-        throw new Error('No metrics available for preventive insights');
+        console.log(`[PreventiveHealthService] No metrics found, AI service will generate recommendations from user profile only`);
+      } else {
+        console.log(`[PreventiveHealthService] Sending ${metricsPayload.length} metrics to AI service`);
       }
-
-      console.log(`[PreventiveHealthService] Sending ${metricsPayload.length} metrics to AI service`);
       
       const response = await axios.post(
         `${this.baseUrl}/ai/preventive-health`,

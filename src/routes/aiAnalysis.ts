@@ -668,8 +668,11 @@ router.post(
 
       // Save to database if requested
       const saveToDatabase = req.body.save === 'true' || req.body.save === true;
+      console.log(`[AI Analysis] Save to database requested: ${saveToDatabase}, save param: ${req.body.save}, type: ${typeof req.body.save}`);
+      console.log(`[AI Analysis] Result check - faceDetected: ${result.faceDetected}, hasVitals: ${!!result.vitals}`);
       
       if (saveToDatabase && result.faceDetected && result.vitals) {
+        console.log(`[AI Analysis] Saving vitals to database...`);
         const timestamp = result.vitals.timestamp || new Date();
         const metrics: any[] = [];
 
@@ -767,8 +770,19 @@ router.post(
         }
 
         if (metrics.length > 0) {
-          await MetricService.createBatchMetrics(req.user.id, metrics);
+          console.log(`[AI Analysis] Saving ${metrics.length} metrics to database for user ${req.user.id}`);
+          try {
+            await MetricService.createBatchMetrics(req.user.id, metrics);
+            console.log(`[AI Analysis] Successfully saved ${metrics.length} metrics to database`);
+          } catch (saveError: any) {
+            console.error(`[AI Analysis] Error saving metrics to database:`, saveError);
+            // Don't fail the request if saving fails, just log it
+          }
+        } else {
+          console.log(`[AI Analysis] No metrics to save (filtered out by confidence or missing values)`);
         }
+      } else {
+        console.log(`[AI Analysis] Not saving to database - saveToDatabase: ${saveToDatabase}, faceDetected: ${result.faceDetected}, hasVitals: ${!!result.vitals}`);
       }
 
       res.json({
