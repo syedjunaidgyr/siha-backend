@@ -446,10 +446,22 @@ export class AIAnalysisService {
       throw new Error('Video buffer is required');
     }
 
-    console.log(`[AIAnalysisService] Analyzing video file: ${videoBuffer.length} bytes, type: ${mimeType}`);
+    const videoSizeMB = (videoBuffer.length / (1024 * 1024)).toFixed(2);
+    console.log(`[AIAnalysisService] Analyzing video file: ${videoBuffer.length} bytes (${videoSizeMB} MB), type: ${mimeType}`);
+
+    // For large files (>30MB), converting to base64 can cause memory issues
+    // We'll still do it but with better error handling
+    let videoBase64: string;
+    try {
+      console.log(`[AIAnalysisService] Converting video to base64...`);
+      videoBase64 = videoBuffer.toString('base64');
+      console.log(`[AIAnalysisService] Base64 conversion complete: ${(videoBase64.length / (1024 * 1024)).toFixed(2)} MB`);
+    } catch (convertError: any) {
+      throw new Error(`Failed to convert video to base64: ${convertError?.message || 'Memory error'}`);
+    }
 
     const payload: Record<string, any> = {
-      video: videoBuffer.toString('base64'),
+      video: videoBase64,
       mimeType: mimeType,
     };
 
@@ -462,14 +474,17 @@ export class AIAnalysisService {
     }
 
     try {
+      console.log(`[AIAnalysisService] Sending video to Python AI service...`);
       const response = await axios.post(
         `${this.baseUrl}/ai/analyze-video-file`,
         payload,
         { 
-          timeout: 180_000, // 3 minutes for video processing
+          timeout: 600_000, // 10 minutes for large video processing (40MB+ files need more time)
           headers: {
             'Content-Type': 'application/json',
           },
+          maxContentLength: Infinity,
+          maxBodyLength: Infinity,
         }
       );
 
