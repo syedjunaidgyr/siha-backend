@@ -82,6 +82,8 @@ export class LifestylePredictionService {
       sleep_hours: Number(sleepHours.toFixed(1)),
       water_intake_liters: Number(waterLiters.toFixed(2)),
       lifestyle_score: Math.min(100, Math.max(0, Number(lifestyleCard.score))),
+      bmi: lifestyleCard.bmi ? Number(lifestyleCard.bmi) : undefined,
+      bmi_category: lifestyleCard.bmiCategory || undefined,
       notes: lifestyleCard.notes || lifestylePlan?.morning?.[0] || insights?.summary?.nextBestAction,
     };
   }

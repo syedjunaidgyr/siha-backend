@@ -15,6 +15,8 @@ interface LifestylePredictionAttributes {
   sleep_hours: number;
   water_intake_liters: number;
   lifestyle_score: number; // 0-100
+  bmi?: number;
+  bmi_category?: string;
   notes?: string;
   created_at: Date;
   updated_at: Date;
@@ -36,6 +38,8 @@ class LifestylePrediction extends Model<LifestylePredictionAttributes, Lifestyle
   public sleep_hours!: number;
   public water_intake_liters!: number;
   public lifestyle_score!: number;
+  public bmi?: number;
+  public bmi_category?: string;
   public notes?: string;
   public readonly created_at!: Date;
   public readonly updated_at!: Date;
@@ -114,6 +118,16 @@ LifestylePrediction.init(
         max: 100,
       },
       comment: 'Overall lifestyle health score',
+    },
+    bmi: {
+      type: DataTypes.DECIMAL(4, 1),
+      allowNull: true,
+      comment: 'Body Mass Index',
+    },
+    bmi_category: {
+      type: DataTypes.STRING,
+      allowNull: true,
+      comment: 'BMI category: underweight, normal, overweight, obese',
     },
     notes: {
       type: DataTypes.TEXT,
