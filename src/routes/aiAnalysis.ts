@@ -570,7 +570,18 @@ router.post(
         videoBuffer = await S3Service.downloadVideo(req.body.s3Key);
         console.log(`[AI Analysis] Video downloaded from S3: ${videoBuffer.length} bytes`);
       } 
-      // Option 2: Multipart file upload
+      // Option 2: Base64 video in JSON body (for Android scoped storage issues)
+      else if (req.body.video && typeof req.body.video === 'string') {
+        console.log(`[AI Analysis] Video received as base64 in JSON body: ${req.body.video.length} chars`);
+        try {
+          videoBuffer = Buffer.from(req.body.video, 'base64');
+          mimeType = req.body.mimeType || 'video/mp4';
+          console.log(`[AI Analysis] Decoded base64 video: ${videoBuffer.length} bytes`);
+        } catch (decodeError: any) {
+          return res.status(400).json({ error: `Failed to decode base64 video: ${decodeError?.message || 'Invalid base64 data'}` });
+        }
+      }
+      // Option 3: Multipart file upload
       else if (req.file) {
         const uploadedFile = req.file;
         console.log(`[AI Analysis] Video file received: ${uploadedFile.size} bytes, type: ${uploadedFile.mimetype}, path: ${uploadedFile.path}`);
