@@ -46,8 +46,26 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 // Body parsing middleware
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// Skip JSON parsing for multipart/form-data requests (handled by multer)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('multipart/form-data')) {
+    // Skip JSON parsing for multipart requests - multer will handle it
+    return next();
+  }
+  // Use JSON parser for other requests
+  express.json({ limit: '50mb' })(req, res, next);
+});
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.includes('multipart/form-data')) {
+    // Skip URL encoded parsing for multipart requests
+    return next();
+  }
+  // Use URL encoded parser for other requests
+  express.urlencoded({ extended: true, limit: '50mb' })(req, res, next);
+});
 
 // Audit logging middleware
 app.use(auditLog);

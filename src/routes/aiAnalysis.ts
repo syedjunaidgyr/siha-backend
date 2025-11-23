@@ -524,9 +524,47 @@ router.post(
 router.post(
   '/analyze-video-file',
   authenticate,
+  (req: AuthRequest, res: Response, next: (err?: any) => void) => {
+    // Log request details for debugging
+    console.log('[AI Analysis] analyze-video-file request received:', {
+      hasFile: !!(req as any).file,
+      bodyKeys: Object.keys(req.body || {}),
+      contentType: req.headers['content-type'],
+      contentLength: req.headers['content-length'],
+    });
+    next();
+  },
   videoUpload.single('video'),
+  (err: any, req: AuthRequest, res: Response, next: (err?: any) => void) => {
+    // Handle multer errors
+    if (err) {
+      console.error('[AI Analysis] Multer error:', {
+        message: err.message,
+        code: err.code,
+        field: err.field,
+        name: err.name,
+      });
+      return res.status(400).json({ 
+        error: 'File upload error',
+        message: err.message || 'Failed to process uploaded file',
+      });
+    }
+    next();
+  },
   async (req: AuthRequest, res: Response) => {
     try {
+      console.log('[AI Analysis] analyze-video-file handler started:', {
+        hasFile: !!req.file,
+        fileInfo: req.file ? {
+          fieldname: req.file.fieldname,
+          originalname: req.file.originalname,
+          mimetype: req.file.mimetype,
+          size: req.file.size,
+          path: req.file.path,
+        } : null,
+        bodyKeys: Object.keys(req.body || {}),
+      });
+
       if (!req.user) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
