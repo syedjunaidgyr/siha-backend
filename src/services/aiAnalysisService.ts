@@ -474,30 +474,75 @@ export class AIAnalysisService {
     }
 
     try {
-      console.log(`[AIAnalysisService] Sending video to Python AI service...`);
-      const response = await axios.post(
-        `${this.baseUrl}/ai/analyze-video-file`,
-        payload,
-        { 
-          timeout: 600_000, // 10 minutes for large video processing (40MB+ files need more time)
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          maxContentLength: Infinity,
-          maxBodyLength: Infinity,
+      const pythonServiceUrl = `${this.baseUrl}/ai/analyze-video-file`;
+      console.log(`[AIAnalysisService] Sending video to Python AI service: ${pythonServiceUrl}`);
+      console.log(`[AIAnalysisService] Python service base URL: ${this.baseUrl}`);
+      console.log(`[AIAnalysisService] Payload size: ${(JSON.stringify(payload).length / 1024 / 1024).toFixed(2)} MB (base64 video)`);
+      console.log(`[AIAnalysisService] Request timeout: 600 seconds (10 minutes)`);
+      
+      const requestStartTime = Date.now();
+      
+      // Log progress every 30 seconds to see if request is still alive
+      const progressInterval = setInterval(() => {
+        const elapsed = (Date.now() - requestStartTime) / 1000;
+        console.log(`[AIAnalysisService] Still waiting for Python AI service response... (${elapsed.toFixed(0)}s elapsed)`);
+      }, 30000); // Every 30 seconds
+      
+      try {
+        const response = await axios.post(
+          pythonServiceUrl,
+          payload,
+          { 
+            timeout: 600_000, // 10 minutes for large video processing (40MB+ files need more time)
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            maxContentLength: Infinity,
+            maxBodyLength: Infinity,
+            // Add request/response interceptors for better logging
+            validateStatus: (status) => status < 500, // Don't throw on 4xx errors
+          }
+        );
+
+        clearInterval(progressInterval);
+        const requestDuration = Date.now() - requestStartTime;
+        console.log(`[AIAnalysisService] Python AI service responded in ${(requestDuration / 1000).toFixed(2)}s`);
+        console.log(`[AIAnalysisService] Response status: ${response.status}`);
+        console.log(`[AIAnalysisService] Response has data: ${!!response.data}`);
+        
+        if (!response.data) {
+          console.error('[AIAnalysisService] Python AI service returned empty response');
+          throw new Error('Python AI service returned empty response');
         }
-      );
+        
+        if (!response.data.success) {
+          console.error('[AIAnalysisService] Python AI service returned error:', response.data.error);
+          throw new Error(response.data?.error || 'Video analysis failed');
+        }
 
-      if (!response.data || !response.data.success) {
-        throw new Error(response.data?.error || 'Video analysis failed');
+        console.log(`[AIAnalysisService] Video analysis completed successfully`);
+        return response.data.result;
+      } finally {
+        clearInterval(progressInterval);
       }
-
-      return response.data.result;
     } catch (error: any) {
-      console.error('[AIAnalysisService] Python AI analyze-video-file error:', error?.response?.data || error.message);
+      const errorDetails = {
+        message: error.message,
+        code: error.code,
+        status: error.response?.status,
+        statusText: error.response?.statusText,
+        responseData: error.response?.data,
+        stack: error.stack,
+      };
+      
+      console.error('[AIAnalysisService] Python AI analyze-video-file error:', JSON.stringify(errorDetails, null, 2));
       
       if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
         throw new Error('Video analysis timed out. The video file may be too large or processing took too long.');
+      }
+      
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        throw new Error(`Cannot connect to Python AI service at ${this.baseUrl}. Please ensure the service is running.`);
       }
       
       if (error.response?.data?.error) {
