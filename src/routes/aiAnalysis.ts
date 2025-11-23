@@ -8,6 +8,9 @@ import { S3Service } from '../services/s3Service';
 import { ProfileService } from '../services/profileService';
 import { PreventiveHealthService } from '../services/preventiveHealthService';
 import User from '../models/User';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 const router = Router();
 
@@ -29,10 +32,22 @@ const upload = multer({
 });
 
 // Configure multer for video file uploads
+// Use disk storage instead of memory to avoid loading large files into RAM
 const videoUpload = multer({
-  storage: multer.memoryStorage(),
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      // Store in system temp directory
+      const tempDir = os.tmpdir();
+      cb(null, tempDir);
+    },
+    filename: (req, file, cb) => {
+      // Generate unique filename
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, `vitals-video-${uniqueSuffix}.mp4`);
+    },
+  }),
   limits: {
-    fileSize: 150 * 1024 * 1024, // 150MB limit for video files (30s videos can be 60-80MB)
+    fileSize: 150 * 1024 * 1024, // 150MB limit for video files
   },
   fileFilter: (req, file, cb) => {
     // Accept video files
@@ -557,9 +572,31 @@ router.post(
       } 
       // Option 2: Multipart file upload
       else if (req.file) {
-        console.log(`[AI Analysis] Video file received: ${req.file.size} bytes, type: ${req.file.mimetype}`);
-        videoBuffer = req.file.buffer;
-        mimeType = req.file.mimetype;
+        const uploadedFile = req.file;
+        console.log(`[AI Analysis] Video file received: ${uploadedFile.size} bytes, type: ${uploadedFile.mimetype}, path: ${uploadedFile.path}`);
+        
+        // Read file from disk instead of using buffer (avoids memory issues with large files)
+        // When using diskStorage, req.file.buffer is undefined, we need to read from path
+        const filePath = uploadedFile.path;
+        if (!filePath) {
+          return res.status(400).json({ error: 'File path not available' });
+        }
+        
+        try {
+          videoBuffer = await fs.promises.readFile(filePath);
+          mimeType = uploadedFile.mimetype;
+          
+          // Clean up temp file after reading (async, don't wait)
+          fs.unlink(filePath, (err) => {
+            if (err) console.warn(`[AI Analysis] Could not delete temp file ${filePath}:`, err);
+          });
+        } catch (readError: any) {
+          // Clean up temp file on error
+          if (filePath) {
+            fs.unlink(filePath, () => {});
+          }
+          throw new Error(`Failed to read video file: ${readError?.message || 'Unknown error'}`);
+        }
       } 
       else {
         return res.status(400).json({ error: 'No video file provided. Use s3Key or upload a file.' });
