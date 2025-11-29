@@ -32,11 +32,11 @@ echo ""
 
 # Step 2: Check if code changes are deployed
 echo -e "${GREEN}[2/5]${NC} Verifying code changes..."
-if grep -q "35.154.207.79:3001" src/services/preventiveHealthService.ts; then
+if grep -q "13.203.232.71:3001" src/services/preventiveHealthService.ts; then
     echo "✓ Code changes detected (IP address configured)"
 else
     echo -e "${YELLOW}Warning: Code changes not found.${NC}"
-    echo "The default URL should be: http://35.154.207.79:3001/api"
+    echo "The default URL should be: http://13.203.232.71:3001/api"
     echo "Please ensure you've pulled the latest code changes."
     read -p "Continue anyway? (y/n) " -n 1 -r
     echo
@@ -69,7 +69,7 @@ if [ -f ".env" ]; then
         grep "AI_SERVICE_PYTHON_URL" .env
         echo ""
         echo "If this is set to localhost or 127.0.0.1, update it to:"
-        echo "AI_SERVICE_PYTHON_URL=http://35.154.207.79:3001/api"
+        echo "AI_SERVICE_PYTHON_URL=http://13.203.232.71:3001/api"
     else
         echo "✓ No AI_SERVICE_PYTHON_URL in .env file (will use code default)"
     fi
@@ -95,11 +95,11 @@ if [ -f "ecosystem.config.js" ]; then
         echo "Adding AI_SERVICE_PYTHON_URL to ecosystem.config.js..."
         # This is a simple approach - you may need to manually edit the file
         echo -e "${YELLOW}Please manually add this to your ecosystem.config.js env section:${NC}"
-        echo "  AI_SERVICE_PYTHON_URL: 'http://35.154.207.79:3001/api'"
+        echo "  AI_SERVICE_PYTHON_URL: 'http://13.203.232.71:3001/api'"
         echo ""
     else
         echo "✓ AI_SERVICE_PYTHON_URL already in ecosystem.config.js"
-        echo "Please verify it's set to: http://35.154.207.79:3001/api"
+        echo "Please verify it's set to: http://13.203.232.71:3001/api"
     fi
 else
     echo -e "${YELLOW}No ecosystem.config.js found.${NC}"
@@ -140,17 +140,17 @@ echo "Verification Steps"
 echo "=========================================="
 echo ""
 echo "1. Check if AI service is running:"
-echo "   curl http://35.154.207.79:3001/health"
+echo "   curl http://13.203.232.71:3001/health"
 echo ""
 echo "2. Test backend connection to AI service:"
-echo "   curl http://35.154.207.79:3001/api/ai/preventive-health"
+echo "   curl http://13.203.232.71:3001/api/ai/preventive-health"
 echo "   (This will fail with method error, but confirms connection)"
 echo ""
 echo "3. Check backend logs for connection attempts:"
 echo "   pm2 logs $SERVICE_NAME --lines 50 | grep -i '3001\|AI_SERVICE'"
 echo ""
 echo "4. Verify the URL being used:"
-echo "   Check backend logs for: 'http://35.154.207.79:3001' (should see IP, not localhost)"
+echo "   Check backend logs for: 'http://13.203.232.71:3001' (should see IP, not localhost)"
 echo ""
 
 echo -e "${GREEN}Fix script complete!${NC}"

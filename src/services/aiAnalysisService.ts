@@ -22,7 +22,7 @@ export interface FaceAnalysisResult {
   [key: string]: any;
 }
 
-const DEFAULT_AI_BASE_URL = 'http://35.154.207.79:3001/api';
+const DEFAULT_AI_BASE_URL = 'http://13.203.232.71:3001/api';
 
 export class AIAnalysisService {
   private static get baseUrl(): string {
