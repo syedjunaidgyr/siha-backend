@@ -3,7 +3,7 @@ import { Op } from 'sequelize';
 import MetricRecord from '../models/MetricRecord';
 import User from '../models/User';
 
-const DEFAULT_AI_BASE_URL = 'http://13.203.232.71:3001/api';
+const DEFAULT_AI_BASE_URL = 'http://13.200.84.19:3001/api';
 
 interface InsightOptions {
   lookbackDays?: number;
